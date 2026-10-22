@@ -75,6 +75,9 @@ cp .env.example .env.local   # preencha; nunca versione este arquivo
 | `SYNC_INITIAL_LOOKBACK_DAYS` | Dias que a primeira coleta busca para trás (padrão 7). Valor inicial: depois de salvar Configurações vale o da tela, e "Recomeçar a coleta" aplica de novo. |
 | `SCHEDULER_ENABLED` | Agendador interno (padrão `true`). |
 | `OMIE_WEBHOOK_TOKEN` | Ativa `/api/webhooks/omie?token=…` (opcional). |
+| `SLACK_WEBHOOK_URL` | Incoming Webhook do canal de alertas (segredo). Regras em Configurações › Alertas no Slack. |
+| `APP_BASE_URL` | Endereço público da aplicação, para os links nos alertas. |
+| `AUTH_USER_HEADER` | Cabeçalho com o usuário do proxy autenticado, gravado na auditoria (vazio = cabeçalhos comuns). |
 
 ```bash
 npm run build && npm start
@@ -96,7 +99,9 @@ Primeiros passos na aplicação:
 | Comando | Faz |
 |---|---|
 | `npm run dev` / `build` / `start` | Next.js |
-| `npm test` | Testes unitários e ponta a ponta (simuladores + banco em memória) |
+| `npm test` | Testes unitários, de rotas `/api` e ponta a ponta (simuladores + banco em memória) |
+| `npm run test:coverage` | Os mesmos testes com cobertura (falha abaixo do piso em `vitest.config.mts`) |
+| `npm run test:e2e` | Testes das telas com Playwright (rode `npm run build` antes) |
 | `npm run typecheck` | Verificação de tipos |
 | `npm run simulators` | Simuladores do Vision e do Omie |
 | `npm run demo:seed` | Dados de demonstração na aplicação em execução (`APP_URL`, padrão `http://localhost:3000`) |
@@ -113,11 +118,27 @@ src/server/modules/       Contextos: omie-accounts · mappings · integration ·
 src/server/infrastructure Vision, Omie, banco, agendador, HTTP
 src/server/container.ts   Composition root
 scripts/                  Simuladores, seed de demonstração, migração
-tests/                    Testes ponta a ponta
+tests/                    Testes ponta a ponta e das rotas /api
+e2e/                      Testes das telas (Playwright)
+.github/workflows/        CI: tipos, testes com cobertura, PostgreSQL real e telas
 docs/                     Guia de implementação e referências das APIs
 ```
 
-## Segurança
+## Testes e CI
+
+* **Vitest** (`npm test`): domínio, adaptadores do Vision/Omie/Slack (incluindo caminhos de erro e as
+  respostas reais do Vision), agendador, rotas `/api` chamadas como requisições HTTP e o fluxo completo
+  contra os simuladores. Backend e rotas acima de 85% das linhas; o CI falha abaixo do piso.
+* **PostgreSQL real:** com `TEST_DATABASE_URL`, cada arquivo de teste cria e apaga o próprio banco.
+* **Playwright** (`npm run build && npm run test:e2e`): sobe simuladores e aplicação e percorre painel,
+  pedido com erro, simulação, reenvio, configurações, auditoria e a lista no celular.
+* **GitHub Actions** (`.github/workflows/ci.yml`): três jobs a cada push e pull request — tipos e
+  cobertura; testes no PostgreSQL 16; build e telas.
+
+## Segurança e auditoria
 
 O App Secret é criptografado (AES-256-GCM), nunca volta pela API e é removido dos logs junto com tokens
-e senhas. A interface ainda não tem autenticação: publique atrás de VPN ou proxy autenticado.
+e senhas. A interface ainda não tem login próprio: publique atrás de um proxy autenticado (oauth2-proxy,
+Cloudflare Access, Nginx com SSO). O usuário que o proxy informa no cabeçalho vai para a **Auditoria**,
+que registra alterações de contas, mapeamentos e configurações e as ações manuais nos pedidos. Toda
+resposta da API traz `x-request-id`; o mesmo código aparece nos logs do servidor e na auditoria.

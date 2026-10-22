@@ -23,7 +23,7 @@ export class RetryOrder {
     private readonly deps: { orders: IntegrationOrderRepository; process: ProcessOrder; reconcile: ReconcileOrder; logs: IntegrationLogRepository; clock: Clock },
   ) {}
 
-  async execute(input: { orderId: string }): Promise<RetryResult> {
+  async execute(input: { orderId: string; actor?: string | null }): Promise<RetryResult> {
     const { orders, process, reconcile, clock } = this.deps;
     const order = await orders.findById(input.orderId);
     if (!order) throw new NotFoundError("Pedido", input.orderId);
@@ -32,7 +32,7 @@ export class RetryOrder {
 
     const result: RetryResult = { orderId: order.id, ok: true, message: "" };
     if (order.hasUnsentDocuments() || order.lastErrorScope() === "SEND") {
-      result.process = await process.execute({ orderId: order.id, runId: null, trigger: "MANUAL" });
+      result.process = await process.execute({ orderId: order.id, runId: null, trigger: "MANUAL", actor: input.actor ?? null });
       if (result.process.status === "FAILED") {
         return { ...result, ok: false, message: result.process.error.message };
       }
@@ -51,12 +51,12 @@ export class RetryOrder {
 export class RetryOrders {
   constructor(private readonly deps: { orders: IntegrationOrderRepository; retry: RetryOrder }) {}
 
-  async execute(input: { ids?: string[]; category?: ErrorCategory; omieAccountId?: string; limit?: number }): Promise<{ total: number; succeeded: number; failed: number; results: RetryResult[] }> {
+  async execute(input: { ids?: string[]; category?: ErrorCategory; omieAccountId?: string; limit?: number; actor?: string | null }): Promise<{ total: number; succeeded: number; failed: number; results: RetryResult[] }> {
     const ids = await this.deps.orders.listIdsForBulkRetry({ ids: input.ids, category: input.category, omieAccountId: input.omieAccountId }, Math.min(input.limit ?? 100, 500));
     const results: RetryResult[] = [];
     for (const id of ids) {
       try {
-        results.push(await this.deps.retry.execute({ orderId: id }));
+        results.push(await this.deps.retry.execute({ orderId: id, actor: input.actor }));
       } catch (error) {
         results.push({ orderId: id, ok: false, message: error instanceof Error ? error.message : String(error) });
       }
@@ -69,7 +69,7 @@ export class RetryOrders {
 export class SetOrderIgnored {
   constructor(private readonly deps: { orders: IntegrationOrderRepository; logs: IntegrationLogRepository; clock: Clock }) {}
 
-  async execute(input: { orderId: string; ignored: boolean; reason?: string | null }): Promise<void> {
+  async execute(input: { orderId: string; ignored: boolean; reason?: string | null; actor?: string | null }): Promise<void> {
     const { orders, logs, clock } = this.deps;
     const order = await orders.findById(input.orderId);
     if (!order) throw new NotFoundError("Pedido", input.orderId);
@@ -77,7 +77,8 @@ export class SetOrderIgnored {
     else order.unignore(clock.now());
     await orders.save(order);
     const log = new ExecutionLog({ orderId: order.id, runId: null }, clock);
-    log.add(input.ignored ? "WARN" : "INFO", input.ignored ? `Pedido marcado como ignorado${input.reason ? `: ${input.reason}` : "."}` : "Pedido voltou para a integração.", null, null);
+    const by = input.actor ? ` por ${input.actor}` : "";
+    log.add(input.ignored ? "WARN" : "INFO", input.ignored ? `Pedido marcado como ignorado${by}${input.reason ? `: ${input.reason}` : "."}` : `Pedido voltou para a integração${by}.`, null, null);
     await log.flush(logs);
   }
 }

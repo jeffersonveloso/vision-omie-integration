@@ -32,6 +32,8 @@ export interface IntegrationLogEntry {
 
 export interface IntegrationLogRepository {
   append(entries: IntegrationLogEntry[]): Promise<void>;
+  /** Remove logs antigos: avisos/infos antes de `before`, erros antes de `errorsBefore`. */
+  purge(input: { before: Date; errorsBefore: Date }): Promise<number>;
 }
 
 export type SyncJob = "SYNC" | "RECONCILE" | "RETRY";
@@ -65,6 +67,7 @@ export interface SyncRun {
 export interface SyncRunRepository {
   create(run: SyncRun): Promise<void>;
   update(run: SyncRun): Promise<void>;
+  purgeBefore(date: Date): Promise<number>;
 }
 
 export interface CheckpointRepository {

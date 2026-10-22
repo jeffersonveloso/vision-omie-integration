@@ -207,9 +207,35 @@ Todo o mapeamento é validado **antes** de qualquer chamada ao Omie.
   Vision indisponível, Erro interno.
 * Cada erro traz **mensagem**, **dica de correção**, **etapa**, **tentativas**, **próxima tentativa** e
   **dados técnicos** (resposta do Omie/Vision).
-* Linha do tempo do pedido: todas as etapas e chamadas, com request/response.
+* Linha do tempo do pedido: todas as etapas e chamadas, com request/response. Reenvio e "ignorar"
+  registram quem fez.
 * Reenvio: no pedido, em lote (selecionados) ou "Reenviar todos" de uma causa no Painel.
 * Retentativa automática só para falhas temporárias (padrão 2, 10, 30, 60, 180 min).
+
+### Logs, auditoria e alertas
+
+| O quê | Onde | Retenção padrão |
+|---|---|---|
+| Linha do tempo (etapas e chamadas às APIs) e webhooks recebidos | Pedido › Linha do tempo · Execuções | 90 dias (erros: 365) |
+| Execuções das rotinas | Execuções | 365 dias |
+| Auditoria: alterações de contas, regras, de-para e configurações; reenvios, ignorar, sincronizar agora, recomeçar a coleta | Auditoria | 730 dias |
+| Logs do servidor (JSON por linha, com `requestId`) | saída padrão → Loki/CloudWatch/Datadog | do coletor |
+
+* **Correlação:** toda resposta da API traz `x-request-id` (ou reaproveita o recebido). Erro inesperado
+  devolve só esse código ao usuário; a mensagem técnica e a pilha vão para o log estruturado.
+* **Autor:** vem do cabeçalho do proxy autenticado (`AUTH_USER_HEADER`, ou X-Forwarded-Email,
+  X-Auth-Request-Email, Remote-User...). Sem proxy, aparece "Não identificado".
+* **Retenção:** *Configurações › Retenção de logs*; limpeza diária às 03:17. O erro atual de cada pedido
+  fica no próprio pedido, então a limpeza não esconde pendências.
+* **Alertas no Slack** (*Configurações › Alertas no Slack*, webhook em `SLACK_WEBHOOK_URL`):
+  * rotina com falha (Vision/Omie fora do ar, credencial recusada), no máximo um aviso igual por intervalo
+    (padrão 60 min);
+  * pedidos que entraram em erro: uma mensagem por execução, agrupada por causa, com link para cada
+    pedido (`APP_BASE_URL`); novas tentativas do mesmo erro não repetem o aviso;
+  * nota rejeitada, com o motivo.
+* **Dados pessoais:** o ocultamento é por nome de campo (chaves, senhas, tokens). CPF/CNPJ, e-mail e
+  endereço dos clientes ficam nos payloads da linha do tempo; ajuste a retenção conforme a política de
+  LGPD da Ecolife.
 
 ---
 
@@ -275,7 +301,7 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 | 2. Fundação | Projeto, persistência, configuração, logs, processamento | Concluída |
 | 3. Vision → Omie | Coleta incremental, pedido completo, clientes, roteamento, PV e OS | Concluída |
 | 4. Omie → Vision | Eventos fiscais, títulos, baixas, cancelamentos | Concluída |
-| 5. Resiliência e testes | Idempotência, retries, testes, exceções | Concluída (46 testes, inclusive ponta a ponta e com as respostas reais do Vision) |
+| 5. Resiliência e testes | Idempotência, retries, testes, exceções | Concluída: 108 testes (≈90% das linhas do backend e das rotas), PostgreSQL real, 6 testes de tela e CI |
 | 6. Homologação | Testes ponta a ponta reais, correções, documentação, implantação | Próximo passo |
 
 ### Checklist de homologação (critérios de aceite da proposta)
@@ -306,6 +332,12 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 * **Webhook do Omie (opcional):** `OMIE_WEBHOOK_TOKEN` e cadastrar
   `https://<host>/api/webhooks/omie?token=...` no Developer Omie. O webhook só antecipa a consulta; a
   fonte de verdade continua sendo a API.
+* **Alertas no Slack:** no Slack, crie um app com *Incoming Webhooks* para o canal da equipe, coloque a
+  URL em `SLACK_WEBHOOK_URL` e o endereço da aplicação em `APP_BASE_URL`; ligue em *Configurações ›
+  Alertas no Slack* e use **Enviar mensagem de teste**.
 * **Segurança:** App Secret criptografado (AES-256-GCM), nunca devolvido pela API nem gravado em log.
-  A interface ainda não tem login — publique atrás de VPN/proxy autenticado até o backend NestJS com
-  autenticação.
+  A interface ainda não tem login — publique atrás de um proxy autenticado (o usuário dele vai para a
+  auditoria) até o backend NestJS com autenticação.
+* **Qualidade:** `npm run test:coverage` (piso de cobertura), `TEST_DATABASE_URL=… npx vitest run tests`
+  (PostgreSQL real) e `npm run build && npm run test:e2e` (telas). O GitHub Actions roda os três a cada
+  push e pull request.

@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { DOCUMENT_TYPES, SOURCE_TYPES, TRANSFORMS } from "@/server/modules/mappings/domain/types";
+import { DOCUMENT_TYPE_LABELS, DOCUMENT_TYPES, SOURCE_TYPES, TRANSFORMS } from "@/server/modules/mappings/domain/types";
 import { handler, json, readJson } from "@/server/infrastructure/http/route-handler";
 
 export const GET = handler(async (request, c) => {
@@ -25,8 +25,17 @@ const ruleSchema = z.object({
 });
 
 /** Cria ou atualiza a regra de um campo (no escopo global ou de uma conta). */
-export const PUT = handler(async (request, c) => {
+export const PUT = handler(async (request, c, _ctx, meta) => {
   const body = await readJson(request, ruleSchema);
   const rule = await c.mappingAdmin.saveRule({ ...body, notes: body.notes ?? null });
+  const scope = body.omieAccountId ? `conta ${(await c.omieAccounts.get(body.omieAccountId)).toPublic().name}` : "todas as contas";
+  const { sourceType, sourcePath, constantValue, valueMapKey, transforms, defaultValue, active } = body;
+  await c.audit.record(meta, {
+    action: "field-rule.save",
+    entityType: "FIELD_RULE",
+    entityId: rule.toSnapshot().id,
+    summary: `Regra de "${body.targetField}" (${DOCUMENT_TYPE_LABELS[body.documentType]}, ${scope}) salva.`,
+    changes: { sourceType, sourcePath: sourcePath ?? null, constantValue: constantValue ?? null, valueMapKey: valueMapKey ?? null, transforms, defaultValue: defaultValue ?? null, active },
+  });
   return json({ rule: rule.toSnapshot() });
 });

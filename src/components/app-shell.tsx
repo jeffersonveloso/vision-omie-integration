@@ -1,7 +1,7 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeftRight, Building2, ClipboardList, Cog, Gauge, History, Menu, Waypoints, X } from "lucide-react";
+import { ArrowLeftRight, Building2, ClipboardList, Cog, FileClock, Gauge, History, Menu, Waypoints, X } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -15,6 +15,7 @@ const NAV = [
   { href: "/mapeamentos", label: "Mapeamentos", icon: Waypoints },
   { href: "/contas-omie", label: "Contas Omie", icon: Building2 },
   { href: "/execucoes", label: "Execuções", icon: History },
+  { href: "/auditoria", label: "Auditoria", icon: FileClock },
   { href: "/configuracoes", label: "Configurações", icon: Cog },
 ];
 

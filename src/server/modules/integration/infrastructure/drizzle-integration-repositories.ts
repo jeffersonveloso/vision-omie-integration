@@ -264,6 +264,14 @@ export class DrizzleIntegrationLogRepository implements IntegrationLogRepository
     if (entries.length === 0) return;
     await this.db.insert(integrationLogs).values(entries.map((e) => ({ ...e })));
   }
+
+  async purge(input: { before: Date; errorsBefore: Date }): Promise<number> {
+    const deleted = await this.db
+      .delete(integrationLogs)
+      .where(or(and(lt(integrationLogs.createdAt, input.before), sql`${integrationLogs.level} <> 'ERROR'`), lt(integrationLogs.createdAt, input.errorsBefore)))
+      .returning({ id: integrationLogs.id });
+    return deleted.length;
+  }
 }
 
 export class DrizzleSyncRunRepository implements SyncRunRepository {
@@ -271,6 +279,11 @@ export class DrizzleSyncRunRepository implements SyncRunRepository {
 
   async create(run: SyncRun): Promise<void> {
     await this.db.insert(syncRuns).values({ ...run, stats: run.stats });
+  }
+
+  async purgeBefore(date: Date): Promise<number> {
+    const deleted = await this.db.delete(syncRuns).where(lt(syncRuns.startedAt, date)).returning({ id: syncRuns.id });
+    return deleted.length;
   }
 
   async update(run: SyncRun): Promise<void> {
@@ -348,5 +361,10 @@ export class DrizzleWebhookEventStore implements WebhookEventStore {
 
   async save(event: { id: string; source: string; topic: string | null; payload: unknown; receivedAt: Date; relatedOrderId: string | null }): Promise<void> {
     await this.db.insert(webhookEvents).values({ ...event, payload: (event.payload ?? {}) as object });
+  }
+
+  async purgeBefore(date: Date): Promise<number> {
+    const deleted = await this.db.delete(webhookEvents).where(lt(webhookEvents.receivedAt, date)).returning({ id: webhookEvents.id });
+    return deleted.length;
   }
 }

@@ -45,6 +45,20 @@ export const settingsSchema = z.object({
     upsertCustomer: z.boolean(),
     lineTotalMismatch: z.enum(["BLOCK", "ADJUST_QUANTITY", "ADJUST_UNIT_PRICE"]),
   }),
+  alerts: z.object({
+    enabled: z.boolean(),
+    onJobFailure: z.boolean(),
+    onOrderErrors: z.boolean(),
+    onRejection: z.boolean(),
+    cooldownMinutes: intIn(0, 24 * 60),
+  }),
+  logs: z
+    .object({
+      retentionDays: intIn(7, 3650),
+      errorRetentionDays: intIn(7, 3650),
+      auditRetentionDays: intIn(30, 3650),
+    })
+    .refine((l) => l.errorRetentionDays >= l.retentionDays, { message: "Mantenha os erros por pelo menos o mesmo tempo que os demais registros.", path: ["errorRetentionDays"] }),
   paymentTerms: z.object({
     byPaymentForm: z
       .array(

@@ -1,5 +1,7 @@
 import type { LookupEntity, LookupOption } from "@/server/modules/mappings/domain/types";
+import type { ErrorCategory } from "../domain/integration-error";
 import type { FinancialTitleSnapshot, FiscalSnapshot } from "../domain/omie-document";
+import type { SyncRun } from "../domain/repositories";
 import type { VisionOrderPayload, VisionOrderSummary } from "../domain/vision-order";
 
 /** Registro de cada chamada externa — vira linha na linha do tempo do pedido. */
@@ -167,4 +169,19 @@ export interface OmieGatewayFactory {
 export interface DocumentDownloader {
   /** Baixa PDF/XML por URL (links do Omie). Retorna null se indisponível. */
   download(url: string): Promise<Buffer | null>;
+}
+
+// ── Avisos ao fim de cada execução (alertas) ───────────────────────────
+
+export interface RunNotice {
+  run: SyncRun;
+  /** Pedidos que entraram em erro (ou mudaram de erro) nesta execução. */
+  failures: Array<{ orderId: string; visionOrderCode: number; category: ErrorCategory; message: string }>;
+  /** Notas que passaram a ser rejeitadas nesta execução. */
+  rejections: Array<{ orderId: string; visionOrderCode: number; message: string }>;
+}
+
+export interface RunNotifier {
+  /** Nunca deve lançar erro: falha no aviso não pode afetar a execução. */
+  notifyRun(notice: RunNotice): Promise<void>;
 }

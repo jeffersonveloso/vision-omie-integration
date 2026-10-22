@@ -16,6 +16,12 @@ import type { OmieGatewayFactory, VisionGateway } from "@/server/modules/integra
 import { CollectVisionOrders } from "@/server/modules/integration/application/use-cases/collect-vision-orders";
 import { CollectionWindowService } from "@/server/modules/integration/application/collection-window";
 import { HandleOmieWebhook } from "@/server/modules/integration/application/use-cases/handle-omie-webhook";
+import { PurgeOldRecords } from "@/server/modules/integration/application/use-cases/purge-old-records";
+import { AuditService } from "@/server/modules/audit/application/audit-service";
+import type { AlertChannel } from "@/server/modules/alerts/application/alert-channel";
+import { AlertService } from "@/server/modules/alerts/application/alert-service";
+import { SlackWebhookChannel } from "@/server/infrastructure/slack/slack-webhook-channel";
+import { DrizzleAuditRepository } from "@/server/modules/audit/infrastructure/drizzle-audit-repository";
 import { RunReconcileJob, RunSyncJob } from "@/server/modules/integration/application/use-cases/jobs";
 import { AcknowledgeVisionUpdate, RetryOrder, RetryOrders, SetOrderIgnored } from "@/server/modules/integration/application/use-cases/order-actions";
 import { PreviewOrderMapping } from "@/server/modules/integration/application/use-cases/preview-order-mapping";
@@ -50,6 +56,9 @@ export interface ContainerOverrides {
   vision?: VisionGateway;
   omie?: OmieGatewayFactory;
   fetchImpl?: typeof fetch;
+  /** Canal de alertas (testes usam um canal em memória no lugar do Slack). */
+  alertChannel?: AlertChannel;
+  appBaseUrl?: string;
 }
 
 /**
@@ -85,6 +94,7 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   const customerLinks = new DrizzleCustomerLinkRepository(db);
   const jobLock = new DrizzleJobLock(db);
   const webhookEvents = new DrizzleWebhookEventStore(db);
+  const audit = new AuditService(new DrizzleAuditRepository(db), ids, clock, logger);
   const queries = new DrizzleOrderQueryService(db, timeZone);
 
   // Adaptadores externos
@@ -114,10 +124,12 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   const preview = new PreviewOrderMapping({ orders, accounts, router, mappingContexts, vision, settings: settingsRepo, timeZone });
   const webhook = new HandleOmieWebhook({ orders, events: webhookEvents, logs, ids, clock });
 
-  const jobDeps = { orders, runs, lock: jobLock, settings: settingsRepo, ids, clock, logger, instanceId };
+  const alerts = new AlertService({ channel: overrides.alertChannel ?? new SlackWebhookChannel(config.SLACK_WEBHOOK_URL, overrides.fetchImpl), settings: settingsRepo, checkpoints, clock, logger, timeZone, appBaseUrl: overrides.appBaseUrl ?? config.APP_BASE_URL ?? null });
+  const jobDeps = { orders, runs, lock: jobLock, settings: settingsRepo, ids, clock, logger, instanceId, notifier: alerts };
   const syncJob = new RunSyncJob({ ...jobDeps, collect, process: processOrder });
   const reconcileJob = new RunReconcileJob({ ...jobDeps, reconcile: reconcileOrder });
-  const scheduler = new IntegrationScheduler({ settings: settingsRepo, sync: syncJob, reconcile: reconcileJob, logger, timeZone });
+  const maintenance = new PurgeOldRecords({ logs, runs, webhooks: webhookEvents, audit, settings: settingsRepo, lock: jobLock, clock, logger, instanceId });
+  const scheduler = new IntegrationScheduler({ settings: settingsRepo, sync: syncJob, reconcile: reconcileJob, maintenance, logger, timeZone });
   settings.attachScheduler(scheduler);
 
   await mappingAdmin.ensureSystemMaps();
@@ -133,7 +145,9 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
     omieAccounts,
     mappingAdmin,
     collectionWindow,
-    useCases: { collect, processOrder, reconcileOrder, retryOrder, retryOrders, setIgnored, acknowledgeUpdate, preview, webhook, syncJob, reconcileJob },
+    audit,
+    alerts,
+    useCases: { collect, processOrder, reconcileOrder, retryOrder, retryOrders, setIgnored, acknowledgeUpdate, preview, webhook, syncJob, reconcileJob, maintenance },
     scheduler,
   };
 }

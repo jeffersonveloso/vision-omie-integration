@@ -3,6 +3,7 @@ import { COMPANIES } from "../scripts/simulators/fixtures";
 import { type OmieSimulator, startOmieSimulator } from "../scripts/simulators/omie-simulator";
 import { startVisionSimulator, type VisionSimulator } from "../scripts/simulators/vision-simulator";
 import { buildContainer, type AppContainer } from "@/server/container";
+import { createTestDatabase } from "./support/test-database";
 import { OmieGatewayFactoryImpl } from "@/server/infrastructure/omie/omie-gateway";
 import { OmieRateLimiter } from "@/server/infrastructure/omie/omie-rate-limiter";
 import { VisionApiClient } from "@/server/infrastructure/vision/vision-api-client";
@@ -15,6 +16,7 @@ describe("Fluxo de integração Vision ↔ Omie", () => {
   let vision: VisionSimulator;
   let omie: OmieSimulator;
   let app: AppContainer;
+  let database: Awaited<ReturnType<typeof createTestDatabase>>;
   const accountIds: Record<string, string> = {};
 
   const orderByCode = async (code: number) => {
@@ -31,7 +33,7 @@ describe("Fluxo de integração Vision ↔ Omie", () => {
     omie.payIntegrationCodes.add("VIS-14106");
     omie.dropResponseOnce.add("VIS-14101-OS");
     app = await buildContainer({
-      databaseUrl: "pglite:memory",
+      databaseUrl: (database = await createTestDatabase()).url,
       vision: new VisionApiClient({ baseUrl: vision.url, username: "OMIE", password: "simulador", timeoutMs: 5000, timeZone: "America/Sao_Paulo" }),
       omie: new OmieGatewayFactoryImpl({ baseUrl: omie.url, timeoutMs: 5000, maxInlineRetries: 2, readCacheTtlMs: 0 }, new OmieRateLimiter({ readConcurrency: 2, minIntervalMs: 0 })),
     });
@@ -41,6 +43,7 @@ describe("Fluxo de integração Vision ↔ Omie", () => {
     await vision?.close();
     await omie?.close();
     await app?.database.close();
+    await database?.drop();
   });
 
   it("cadastra as contas Omie e valida CNPJ × base na conexão", async () => {

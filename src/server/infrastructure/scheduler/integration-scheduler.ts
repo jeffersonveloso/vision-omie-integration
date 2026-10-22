@@ -1,8 +1,11 @@
 import { Cron } from "croner";
 import type { AppLogger } from "@/server/shared/application/ports";
 import type { RunReconcileJob, RunSyncJob } from "@/server/modules/integration/application/use-cases/jobs";
+import type { PurgeOldRecords } from "@/server/modules/integration/application/use-cases/purge-old-records";
 import type { SchedulerControl } from "@/server/modules/settings/application/settings-service";
 import type { SettingsRepository } from "@/server/modules/settings/domain/integration-settings";
+
+export const MAINTENANCE_CRON = "17 3 * * *";
 
 interface JobState {
   name: string;
@@ -27,6 +30,7 @@ export class IntegrationScheduler implements SchedulerControl {
       settings: SettingsRepository;
       sync: RunSyncJob;
       reconcile: RunReconcileJob;
+      maintenance: PurgeOldRecords;
       logger: AppLogger;
       timeZone: string;
     },
@@ -46,6 +50,8 @@ export class IntegrationScheduler implements SchedulerControl {
     const settings = await this.deps.settings.get();
     this.register("sync", settings.sync.enabled, settings.sync.cron, () => this.deps.sync.execute({ trigger: "SCHEDULE" }));
     this.register("reconcile", settings.reconcile.enabled, settings.reconcile.cron, () => this.deps.reconcile.execute({ trigger: "SCHEDULE" }));
+    // Retenção dos logs: uma vez por dia, fora do horário comercial.
+    this.register("maintenance", true, MAINTENANCE_CRON, () => this.deps.maintenance.execute());
   }
 
   stop(): void {

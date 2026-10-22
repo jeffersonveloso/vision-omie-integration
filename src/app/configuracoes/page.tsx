@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { CheckCircle2, Loader2, Plug, XCircle } from "lucide-react";
+import { BellRing, CheckCircle2, Loader2, Plug, XCircle } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/app-shell";
@@ -27,6 +27,8 @@ interface SettingsResponse {
     webhookEnabled: boolean;
     encryptionKeyConfigured: boolean;
     initialLookbackDaysEnv: number;
+    slackConfigured: boolean;
+    appBaseUrl: string | null;
   };
   scheduler: { running: boolean; jobs: Array<{ name: string; enabled: boolean; nextRunAt: string | null; lastRunAt: string | null }> };
 }
@@ -68,6 +70,8 @@ function SettingsForm({ initial, data }: { initial: IntegrationSettings; data: S
       } else toast.error("Não foi possível salvar", { description: e.message });
     },
   });
+  const [alertTest, setAlertTest] = useState<{ ok: boolean; message: string } | null>(null);
+  const testAlert = useMutation({ mutationFn: () => api.post<{ ok: boolean; message: string }>("/api/settings/test-alert"), onSuccess: setAlertTest, onError: (e) => setAlertTest({ ok: false, message: e.message }) });
   const testVision = useMutation({ mutationFn: () => api.post<{ ok: boolean; message: string }>("/api/settings/test-vision"), onSuccess: setVisionTest, onError: (e) => setVisionTest({ ok: false, message: e.message }) });
   const job = (name: string) => data.scheduler.jobs.find((j) => j.name === name);
   const env = data.environment;
@@ -225,6 +229,57 @@ function SettingsForm({ initial, data }: { initial: IntegrationSettings; data: S
             </Field>
           </div>
         </details>
+      </Panel>
+
+      <Panel>
+        <PanelHeader
+          title="Alertas no Slack"
+          description="Avisos no canal da equipe quando uma rotina falha, quando pedidos entram em erro e quando uma nota é rejeitada. Novas tentativas do mesmo erro não repetem o aviso."
+          actions={
+            <Button type="button" variant="outline" onClick={() => testAlert.mutate()} disabled={testAlert.isPending || !env.slackConfigured}>
+              {testAlert.isPending ? <Loader2 className="animate-spin" /> : <BellRing />} Enviar mensagem de teste
+            </Button>
+          }
+        />
+        <div className="grid gap-5 px-5 py-4">
+          <div className="grid gap-1 text-[13px]">
+            <p>
+              Webhook do Slack:{" "}
+              {env.slackConfigured ? "configurado" : <span className="font-semibold text-error">não configurado — defina SLACK_WEBHOOK_URL no servidor (Incoming Webhook do canal)</span>}
+            </p>
+            <p>Links nos alertas: {env.appBaseUrl ? <Mono>{env.appBaseUrl}</Mono> : <span className="text-muted-foreground">sem links para a plataforma (defina APP_BASE_URL)</span>}</p>
+            {alertTest ? (
+              <p className={`flex items-start gap-2 ${alertTest.ok ? "text-done" : "text-error"}`}>
+                {alertTest.ok ? <CheckCircle2 className="mt-0.5 size-4 shrink-0" /> : <XCircle className="mt-0.5 size-4 shrink-0" />}
+                {alertTest.message}
+              </p>
+            ) : null}
+          </div>
+          <ToggleRow id="alerts-enabled" label="Enviar alertas no Slack" checked={s.alerts.enabled} onChange={(enabled) => patch("alerts", { enabled })} />
+          <div className={s.alerts.enabled ? "grid gap-5" : "grid gap-5 opacity-60"}>
+            <ToggleRow id="alerts-job" label="Rotina com falha" description="Vision ou Omie fora do ar, credencial recusada ou erro geral na coleta, no envio ou no retorno." checked={s.alerts.onJobFailure} onChange={(onJobFailure) => patch("alerts", { onJobFailure })} />
+            <ToggleRow id="alerts-orders" label="Pedidos que entraram em erro" description="Uma mensagem por execução, agrupada por causa, com link para cada pedido." checked={s.alerts.onOrderErrors} onChange={(onOrderErrors) => patch("alerts", { onOrderErrors })} />
+            <ToggleRow id="alerts-rejection" label="Nota rejeitada" description="NF-e ou NFS-e rejeitada, com o motivo devolvido pela SEFAZ ou prefeitura." checked={s.alerts.onRejection} onChange={(onRejection) => patch("alerts", { onRejection })} />
+            <Field label="Intervalo mínimo entre avisos de rotina com falha (minutos)" htmlFor="alerts-cooldown" error={err("alerts.cooldownMinutes")} hint="Evita uma mensagem a cada 5 minutos enquanto um sistema estiver fora do ar." className="max-w-sm">
+              <Input id="alerts-cooldown" type="number" min={0} value={s.alerts.cooldownMinutes} onChange={(e) => patch("alerts", { cooldownMinutes: Number(e.target.value) })} />
+            </Field>
+          </div>
+        </div>
+      </Panel>
+
+      <Panel>
+        <PanelHeader title="Retenção de logs" description={`A limpeza roda todo dia às 03:17 (${env.timeZone}). O erro atual de cada pedido fica no próprio pedido, mesmo depois que os registros antigos saem da linha do tempo.`} />
+        <div className="grid gap-4 px-5 py-4 sm:grid-cols-3">
+          <Field label="Linha do tempo e execuções (dias)" htmlFor="ret-logs" error={err("logs.retentionDays")} hint="Informações, avisos, chamadas às APIs e webhooks recebidos.">
+            <Input id="ret-logs" type="number" min={7} value={s.logs.retentionDays} onChange={(e) => patch("logs", { retentionDays: Number(e.target.value) })} />
+          </Field>
+          <Field label="Registros de erro (dias)" htmlFor="ret-errors" error={err("logs.errorRetentionDays")} hint="Erros da linha do tempo e histórico de execuções.">
+            <Input id="ret-errors" type="number" min={7} value={s.logs.errorRetentionDays} onChange={(e) => patch("logs", { errorRetentionDays: Number(e.target.value) })} />
+          </Field>
+          <Field label="Auditoria (dias)" htmlFor="ret-audit" error={err("logs.auditRetentionDays")} hint="Alterações de cadastro e ações manuais.">
+            <Input id="ret-audit" type="number" min={30} value={s.logs.auditRetentionDays} onChange={(e) => patch("logs", { auditRetentionDays: Number(e.target.value) })} />
+          </Field>
+        </div>
       </Panel>
 
       <Panel>

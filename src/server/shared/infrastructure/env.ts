@@ -22,6 +22,16 @@ const schema = z.object({
   /** Dias que a primeira coleta busca para trás (valor inicial; depois vale o da tela de Configurações). */
   SYNC_INITIAL_LOOKBACK_DAYS: z.coerce.number().int().min(0).max(365).optional().default(7),
   SCHEDULER_ENABLED: boolish,
+  /** Incoming Webhook do Slack para os alertas (segredo: fica só no ambiente). */
+  SLACK_WEBHOOK_URL: z.string().optional().transform((v) => (v?.trim() ? v.trim() : undefined)),
+  /** Endereço público da aplicação, usado nos links dos alertas (ex.: https://integracao.ecolife.com.br). */
+  APP_BASE_URL: z.string().optional().transform((v) => (v?.trim() ? v.trim().replace(/\/+$/, "") : undefined)),
+  /**
+   * Cabeçalho com o usuário autenticado, definido pelo proxy na frente da aplicação
+   * (ex.: X-Forwarded-Email do oauth2-proxy). Vazio = tenta os cabeçalhos mais comuns.
+   * Só confie nele se o proxy sobrescrever o cabeçalho vindo do cliente.
+   */
+  AUTH_USER_HEADER: z.string().optional().transform((v) => (v?.trim() ? v.trim().toLowerCase() : undefined)),
   OMIE_WEBHOOK_TOKEN: z.string().optional(),
 });
 

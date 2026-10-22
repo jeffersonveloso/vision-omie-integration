@@ -173,7 +173,7 @@ export const integrationLogs = pgTable(
     data: jsonb("data"),
     createdAt: ts("created_at").notNull(),
   },
-  (t) => [index("integration_logs_order_idx").on(t.orderId, t.createdAt), index("integration_logs_run_idx").on(t.runId)],
+  (t) => [index("integration_logs_order_idx").on(t.orderId, t.createdAt), index("integration_logs_run_idx").on(t.runId), index("integration_logs_created_idx").on(t.createdAt)],
 );
 
 export const syncRuns = pgTable(
@@ -230,3 +230,24 @@ export const webhookEvents = pgTable("webhook_events", {
   relatedOrderId: uuid("related_order_id"),
   receivedAt: ts("received_at").notNull(),
 });
+
+/**
+ * Auditoria: quem mudou o quê (contas, mapeamentos, configurações) e ações manuais nos pedidos.
+ * O autor vem do cabeçalho do proxy autenticado (ex.: X-Forwarded-Email do oauth2-proxy).
+ */
+export const auditEvents = pgTable(
+  "audit_events",
+  {
+    id: uuid("id").primaryKey(),
+    at: ts("at").notNull(),
+    actor: text("actor"),
+    ip: text("ip"),
+    requestId: text("request_id"),
+    action: text("action").notNull(),
+    entityType: text("entity_type").notNull(),
+    entityId: text("entity_id"),
+    summary: text("summary").notNull(),
+    changes: jsonb("changes"),
+  },
+  (t) => [index("audit_events_at_idx").on(t.at), index("audit_events_entity_idx").on(t.entityType, t.entityId)],
+);

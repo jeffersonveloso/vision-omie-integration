@@ -5,6 +5,7 @@ import type { IntegrationOrderRepository, JobLock, SyncRun, SyncRunRepository, S
 import type { CollectVisionOrders } from "./collect-vision-orders";
 import type { ProcessOrder } from "./process-order";
 import type { ReconcileOrder } from "./reconcile-order";
+import type { RunNotice, RunNotifier } from "../ports";
 
 async function runPool<T>(items: T[], concurrency: number, worker: (item: T) => Promise<void>): Promise<void> {
   const queue = [...items];
@@ -26,6 +27,8 @@ interface JobDeps {
   clock: Clock;
   logger: AppLogger;
   instanceId: string;
+  /** Alertas (Slack) ao fim da execução. Opcional. */
+  notifier?: RunNotifier;
 }
 
 /**
@@ -45,6 +48,7 @@ export class RunSyncJob {
     }
     await runs.create(run);
     const errors: string[] = [];
+    const notice: Omit<RunNotice, "run"> = { failures: [], rejections: [] };
     try {
       if (input.collect !== false) {
         try {
@@ -64,7 +68,10 @@ export class RunSyncJob {
       await runPool(due, settings.sync.concurrency, async (orderId) => {
         const outcome = await process.execute({ orderId, runId: run.id, trigger: "SCHEDULE" });
         if (outcome.status === "SENT") succeeded++;
-        if (outcome.status === "FAILED") failed++;
+        if (outcome.status === "FAILED") {
+          failed++;
+          if (outcome.newError) notice.failures.push({ orderId, visionOrderCode: outcome.visionOrderCode, category: outcome.error.category, message: outcome.error.message });
+        }
       });
       run.stats = { ...run.stats, processed: due.length, succeeded, failed };
       run.status = errors.length ? (due.length ? "PARTIAL" : "FAILED") : failed > 0 ? "PARTIAL" : "SUCCESS";
@@ -78,6 +85,7 @@ export class RunSyncJob {
       await runs.update(run);
       await lock.release("sync", instanceId);
     }
+    await this.deps.notifier?.notifyRun({ run, ...notice });
     return run;
   }
 }
@@ -94,6 +102,7 @@ export class RunReconcileJob {
       return { ...run, status: "SKIPPED", finishedAt: clock.now(), error: "Outro acompanhamento já está em andamento." };
     }
     await runs.create(run);
+    const notice: Omit<RunNotice, "run"> = { failures: [], rejections: [] };
     try {
       const since = addDays(clock.now(), -settings.reconcile.windowDays);
       const due = await orders.listDueForReconcile(clock.now(), since, settings.reconcile.maxOrdersPerRun);
@@ -105,8 +114,12 @@ export class RunReconcileJob {
         if (outcome.status === "OK") {
           returned += outcome.returned;
           if (outcome.changed) changed++;
+          if (outcome.rejection) notice.rejections.push({ orderId, visionOrderCode: outcome.visionOrderCode, message: outcome.rejection });
         }
-        if (outcome.status === "FAILED") failed++;
+        if (outcome.status === "FAILED") {
+          failed++;
+          if (outcome.newError) notice.failures.push({ orderId, visionOrderCode: outcome.visionOrderCode, category: outcome.error.category, message: outcome.error.message });
+        }
       });
       run.stats = { checked: due.length, changed, returned, failed };
       run.status = failed > 0 ? "PARTIAL" : "SUCCESS";
@@ -119,6 +132,7 @@ export class RunReconcileJob {
       await runs.update(run);
       await lock.release("reconcile", instanceId);
     }
+    await this.deps.notifier?.notifyRun({ run, ...notice });
     return run;
   }
 }

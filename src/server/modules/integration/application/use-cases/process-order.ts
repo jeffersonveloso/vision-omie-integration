@@ -17,9 +17,15 @@ import { OmiePayloadBuilder, splitParcels } from "../omie-payload-builder";
 import { applyPaymentTerms, prepareLines } from "../order-checks";
 import type { OmieGatewayFactory, VisionGateway } from "../ports";
 
+/** Mesmo erro de antes (ex.: nova tentativa automática que falhou igual) não conta como novo. */
+export function isNewError(previous: { category: string; code: string } | null, current: { category: string; code: string }): boolean {
+  return !previous || previous.category !== current.category || previous.code !== current.code;
+}
+
 export type ProcessOutcome =
   | { status: "SENT"; orderId: string }
-  | { status: "FAILED"; orderId: string; error: IntegrationError }
+  /** `newError`: o pedido entrou em erro agora ou mudou de erro (base dos alertas, sem repetir a cada nova tentativa). */
+  | { status: "FAILED"; orderId: string; visionOrderCode: number; error: IntegrationError; newError: boolean }
   | { status: "SKIPPED"; orderId: string; reason: string };
 
 export interface ProcessOrderDeps {
@@ -49,7 +55,7 @@ export class ProcessOrder {
 
   constructor(private readonly deps: ProcessOrderDeps) {}
 
-  async execute(input: { orderId: string; runId: string | null; trigger: "SCHEDULE" | "MANUAL" }): Promise<ProcessOutcome> {
+  async execute(input: { orderId: string; runId: string | null; trigger: "SCHEDULE" | "MANUAL"; actor?: string | null }): Promise<ProcessOutcome> {
     const { orders, clock, logs } = this.deps;
     const now = clock.now();
     if (!(await orders.tryClaim(input.orderId, addMinutes(now, CLAIM_MINUTES), now))) {
@@ -60,7 +66,8 @@ export class ProcessOrder {
       const order = await orders.findById(input.orderId);
       if (!order) return { status: "SKIPPED", orderId: input.orderId, reason: "Pedido não encontrado." };
       if (order.ignored) return { status: "SKIPPED", orderId: input.orderId, reason: "Pedido marcado como ignorado." };
-      log.step("FETCH_DETAIL").info(input.trigger === "MANUAL" ? "Reenvio manual iniciado." : "Processamento automático iniciado.");
+      const previousError = order.lastError;
+      log.step("FETCH_DETAIL").info(input.trigger === "MANUAL" ? `Reenvio manual iniciado${input.actor ? ` por ${input.actor}` : ""}.` : "Processamento automático iniciado.");
       try {
         await this.run(order, log);
         order.recordSuccess("SEND", clock.now());
@@ -72,7 +79,7 @@ export class ProcessOrder {
         order.recordFailure(error, settings.retry, clock.now());
         await orders.save(order);
         log.add("ERROR", error.message, { category: error.category, code: error.code, hint: error.hint, retryable: error.retryable, details: error.details }, error.step);
-        return { status: "FAILED", orderId: order.id, error };
+        return { status: "FAILED", orderId: order.id, visionOrderCode: order.visionOrderCode, error, newError: isNewError(previousError, error) };
       }
     } finally {
       await log.flush(logs);

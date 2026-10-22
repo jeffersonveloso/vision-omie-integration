@@ -43,3 +43,7 @@ next-env.d.ts
 
 # banco embarcado (PGlite) de desenvolvimento
 /.data/
+
+# Playwright
+/playwright-report/
+/test-results/

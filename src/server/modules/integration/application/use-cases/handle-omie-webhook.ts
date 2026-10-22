@@ -4,6 +4,7 @@ import { ExecutionLog } from "../execution-log";
 
 export interface WebhookEventStore {
   save(event: { id: string; source: string; topic: string | null; payload: unknown; receivedAt: Date; relatedOrderId: string | null }): Promise<void>;
+  purgeBefore(date: Date): Promise<number>;
 }
 
 const ID_KEYS = ["idPedido", "codigo_pedido", "nCodPed", "nCodPedido", "idOrdemServico", "nCodOS", "codigoPedido"];

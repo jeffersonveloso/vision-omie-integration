@@ -12,10 +12,12 @@ import { snapshotVisionOrder } from "../../domain/vision-order";
 import { ExecutionLog } from "../execution-log";
 import type { DocumentDownloader, OmieGatewayFactory, VisionGateway } from "../ports";
 import { VisionReturnBuilder } from "../vision-return-builder";
+import { isNewError } from "./process-order";
 
 export type ReconcileOutcome =
-  | { status: "OK"; orderId: string; returned: number; changed: boolean }
-  | { status: "FAILED"; orderId: string; error: IntegrationError }
+  /** `rejection`: motivo, quando a nota passou a ser rejeitada nesta consulta. */
+  | { status: "OK"; orderId: string; visionOrderCode: number; returned: number; changed: boolean; rejection: string | null }
+  | { status: "FAILED"; orderId: string; visionOrderCode: number; error: IntegrationError; newError: boolean }
   | { status: "SKIPPED"; orderId: string; reason: string };
 
 export interface ReconcileOrderDeps {
@@ -50,12 +52,15 @@ export class ReconcileOrder {
       if (!order) return { status: "SKIPPED", orderId: input.orderId, reason: "Pedido não encontrado." };
       if (order.ignored || !order.hasSentDocuments()) return { status: "SKIPPED", orderId: input.orderId, reason: "Sem documentos no Omie." };
       const statusBefore = order.status;
+      const previousError = order.lastError;
       try {
         const returned = await this.run(order, log);
         order.markChecked(clock.now());
         order.recordSuccess("RETURN", clock.now());
         await orders.save(order);
-        return { status: "OK", orderId: order.id, returned, changed: statusBefore !== order.status };
+        const rejected = statusBefore !== "REJECTED" && order.status === "REJECTED" ? order.documents.find((d) => d.status === "REJECTED") : undefined;
+        const rejection = rejected ? [rejected.fiscal?.rejectionCode, rejected.fiscal?.rejectionMessage].filter(Boolean).join(" — ") || "sem descrição" : null;
+        return { status: "OK", orderId: order.id, visionOrderCode: order.visionOrderCode, returned, changed: statusBefore !== order.status, rejection };
       } catch (raw) {
         const error = IntegrationError.from(raw, log.currentStep ?? "CHECK_FISCAL");
         const settings = await this.deps.settings.get();
@@ -63,7 +68,7 @@ export class ReconcileOrder {
         order.recordFailure(error, settings.retry, clock.now());
         await orders.save(order);
         log.add("ERROR", error.message, { category: error.category, code: error.code, hint: error.hint, retryable: error.retryable, details: error.details }, error.step);
-        return { status: "FAILED", orderId: order.id, error };
+        return { status: "FAILED", orderId: order.id, visionOrderCode: order.visionOrderCode, error, newError: isNewError(previousError, error) };
       }
     } finally {
       await log.flush(logs);

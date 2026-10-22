@@ -78,6 +78,27 @@ export interface IntegrationSettings {
    * mapeamento para o campo substitui tudo isso.
    */
   paymentTerms: PaymentTermsSettings;
+  /** Alertas no Slack (Incoming Webhook em SLACK_WEBHOOK_URL). */
+  alerts: {
+    enabled: boolean;
+    /** Rotina de coleta/envio ou de retorno que falhou (ex.: Vision ou Omie fora do ar). */
+    onJobFailure: boolean;
+    /** Pedidos que entraram em erro (ou mudaram de erro) na execução. Novas tentativas do mesmo erro não repetem o alerta. */
+    onOrderErrors: boolean;
+    /** Notas rejeitadas pela SEFAZ/prefeitura. */
+    onRejection: boolean;
+    /** Intervalo mínimo entre alertas iguais de falha de rotina (minutos). */
+    cooldownMinutes: number;
+  };
+  /** Retenção (dias). A limpeza roda todo dia às 03:17 no fuso da operação. */
+  logs: {
+    /** Linha do tempo (informações e avisos), execuções e webhooks recebidos. */
+    retentionDays: number;
+    /** Registros de erro da linha do tempo. */
+    errorRetentionDays: number;
+    /** Auditoria de alterações e ações manuais. */
+    auditRetentionDays: number;
+  };
   /** Convenções dos payloads de retorno à ControllerAPI do Vision (validar com o suporte Vision). */
   visionReturn: {
     codigoIntegracao: number;
@@ -133,6 +154,18 @@ export const DEFAULT_SETTINGS: IntegrationSettings = {
     upsertCustomer: true,
     lineTotalMismatch: "BLOCK",
   },
+  alerts: {
+    enabled: false,
+    onJobFailure: true,
+    onOrderErrors: true,
+    onRejection: true,
+    cooldownMinutes: 60,
+  },
+  logs: {
+    retentionDays: 90,
+    errorRetentionDays: 365,
+    auditRetentionDays: 730,
+  },
   paymentTerms: {
     byPaymentForm: [],
     defaultCondition: null,
@@ -174,6 +207,8 @@ export function mergeSettings(stored: Partial<IntegrationSettings> | null | unde
     routing: { ...defaults.routing, ...(s.routing ?? {}) },
     documents: { ...defaults.documents, ...(s.documents ?? {}) },
     paymentTerms: { ...defaults.paymentTerms, ...(s.paymentTerms ?? {}) },
+    logs: { ...defaults.logs, ...(s.logs ?? {}) },
+    alerts: { ...defaults.alerts, ...(s.alerts ?? {}) },
     visionReturn: { ...defaults.visionReturn, ...(s.visionReturn ?? {}) },
   };
 }

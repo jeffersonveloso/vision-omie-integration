@@ -1,10 +1,10 @@
 import type { Clock, IdGenerator } from "@/server/shared/application/ports";
 import { ConflictError, DomainError, NotFoundError, ValidationError } from "@/server/shared/domain/result";
 import { resolveEffectiveRules } from "../domain/effective-rules";
-import { FieldRule, type FieldRuleInput } from "../domain/field-rule";
+import { FieldRule, type FieldRuleInput, type FieldRuleProps } from "../domain/field-rule";
 import type { FieldRuleRepository, ValueMapEntryRepository, ValueMapRepository } from "../domain/repositories";
 import type { DocumentType, RuleSpec } from "../domain/types";
-import { normalizeVisionKey, SYSTEM_VALUE_MAPS, ValueMap, type ValueMapEntry, type ValueMapInput } from "../domain/value-map";
+import { normalizeVisionKey, SYSTEM_VALUE_MAPS, ValueMap, type ValueMapEntry, type ValueMapInput, type ValueMapProps } from "../domain/value-map";
 
 export interface EffectiveRuleView {
   key: string;
@@ -76,10 +76,12 @@ export class MappingAdminService {
   }
 
   /** Remove a regra: o campo volta a usar a regra global ou o padrão do catálogo. */
-  async deleteRule(id: string): Promise<void> {
+  /** Remove a regra e devolve o que foi removido (para a auditoria). */
+  async deleteRule(id: string): Promise<FieldRuleProps> {
     const rule = await this.rules.findById(id);
     if (!rule) throw new NotFoundError("Regra de mapeamento", id);
     await this.rules.delete(id);
+    return rule.toSnapshot();
   }
 
   // ── Tabelas de-para ─────────────────────────────────────────────────
@@ -114,11 +116,18 @@ export class MappingAdminService {
     return map;
   }
 
-  async deleteMap(id: string): Promise<void> {
+  async deleteMap(id: string): Promise<ValueMapProps> {
     const map = await this.maps.findById(id);
     if (!map) throw new NotFoundError("Tabela de-para", id);
     if (map.system) throw new DomainError("SYSTEM_MAP", "Tabelas do sistema não podem ser excluídas.");
     await this.maps.delete(id);
+    return map.toSnapshot();
+  }
+
+  async getMap(id: string): Promise<ValueMapProps> {
+    const map = await this.maps.findById(id);
+    if (!map) throw new NotFoundError("Tabela de-para", id);
+    return map.toSnapshot();
   }
 
   async listEntries(valueMapId: string, omieAccountId: string): Promise<ValueMapEntry[]> {
@@ -155,8 +164,10 @@ export class MappingAdminService {
     });
   }
 
-  async deleteEntry(id: string): Promise<void> {
+  async deleteEntry(id: string): Promise<ValueMapEntry | null> {
+    const entry = await this.entries.findById(id);
     await this.entries.delete(id);
+    return entry;
   }
 
   /**

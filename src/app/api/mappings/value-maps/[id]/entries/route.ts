@@ -20,8 +20,17 @@ const entrySchema = z.object({
 });
 
 /** Cria/atualiza uma linha do de-para (ex.: produto Vision 123 → produto Omie 4422421). */
-export const POST = handler<Ctx>(async (request, c, ctx) => {
+export const POST = handler<Ctx>(async (request, c, ctx, meta) => {
   const { id } = await ctx.params;
   const body = await readJson(request, entrySchema);
-  return json({ entry: await c.mappingAdmin.upsertEntry({ ...body, valueMapId: id }) });
+  const entry = await c.mappingAdmin.upsertEntry({ ...body, valueMapId: id });
+  const [map, account] = await Promise.all([c.mappingAdmin.getMap(id), c.omieAccounts.get(body.omieAccountId)]);
+  await c.audit.record(meta, {
+    action: body.id ? "value-map.entry.update" : "value-map.entry.save",
+    entityType: "VALUE_MAP",
+    entityId: id,
+    summary: `De-para "${map.name}" na conta ${account.toPublic().name}: ${entry.visionValue} → ${entry.omieValue}${entry.omieLabel ? ` (${entry.omieLabel})` : ""}.`,
+    changes: { visionValue: entry.visionValue, omieValue: entry.omieValue, omieLabel: entry.omieLabel, omieAccountId: body.omieAccountId },
+  });
+  return json({ entry });
 });

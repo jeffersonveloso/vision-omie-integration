@@ -105,3 +105,62 @@ describe("VisionApiClient com as respostas reais da ControllerAPI", () => {
     expect(order.parcelas).toEqual([]);
   });
 });
+
+describe("VisionApiClient: falhas viram erros claros", () => {
+  const build = (respond: (url: string) => Response | Promise<Response>, username = "OMIE") => {
+    const fetchImpl = (async (input: string | URL | Request) => {
+      const url = String(input);
+      if (url.endsWith("/api/login")) return new Response(JSON.stringify(jwt(Math.floor(Date.now() / 1000))), { status: 200 });
+      return respond(url);
+    }) as typeof fetch;
+    return new VisionApiClient({ baseUrl: "http://vision.local/ControllerAPI", username, password: "x", timeoutMs: 5000, timeZone: "America/Sao_Paulo" }, fetchImpl);
+  };
+  const body = (status: number, data: unknown) => new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+
+  it.each([
+    [500, { Message: "An error has occurred." }, "VISION_UNAVAILABLE", true],
+    [429, {}, "VISION_UNAVAILABLE", true],
+    [403, {}, "VISION_AUTH", true],
+    [400, { Message: "Pedido não liberado para integração." }, "VISION_BUSINESS", false],
+  ])("HTTP %s → %s", async (status, data, category, retryable) => {
+    const client = build(() => body(status, data));
+    const error = await client.getOrder(1).catch((e) => e);
+    expect(error).toMatchObject({ category, retryable });
+    if (status === 400) expect(error.message).toContain("Pedido não liberado para integração.");
+  });
+
+  it("Vision fora do ar vira falha de rede com nova tentativa", async () => {
+    const client = build(() => {
+      throw Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNREFUSED" } });
+    });
+    await expect(client.getOrder(1)).rejects.toMatchObject({ category: "VISION_UNAVAILABLE", code: "NETWORK", retryable: true, message: expect.stringContaining("ECONNREFUSED") });
+  });
+
+  it("pedido sem dados reconhecíveis", async () => {
+    await expect(build(() => body(200, {})).getOrder(1)).rejects.toMatchObject({ code: "ORDER_NOT_FOUND" });
+  });
+
+  it("login recusado, Vision instável no login e credenciais ausentes", async () => {
+    const loginWith = (status: number) =>
+      new VisionApiClient({ baseUrl: "http://vision.local/ControllerAPI", username: "OMIE", password: "x", timeoutMs: 5000, timeZone: "America/Sao_Paulo" }, (async () => body(status, { Message: "Usuário ou senha inválidos." })) as unknown as typeof fetch);
+    await expect(loginWith(401).getOrder(1)).rejects.toMatchObject({ category: "VISION_AUTH", code: "LOGIN_401", retryable: false });
+    await expect(loginWith(503).getOrder(1)).rejects.toMatchObject({ code: "LOGIN_503", retryable: true });
+    await expect(build(() => body(200, {}), "").getOrder(1)).rejects.toMatchObject({ code: "NO_CREDENTIALS" });
+  });
+
+  it("os retornos ao Vision vão para os endpoints certos, com Bearer", async () => {
+    const calls: string[] = [];
+    const client = build((url) => {
+      calls.push(url.replace("http://vision.local/ControllerAPI", ""));
+      return body(200, { sucesso: true });
+    });
+    const p = { codigoPedido: 1, codigoIntegracao: 1 } as never;
+    await client.sendInvoiceAuthorization(p);
+    await client.sendInvoiceRejection(p);
+    await client.sendInvoiceCancellation(p);
+    await client.sendParcelPayment(p);
+    await client.cancelParcelPayment(p);
+    expect(calls).toEqual(["/api/pedido/nota/autorizacao", "/api/pedido/nota/rejeicao", "/api/pedido/nota/cancelamento", "/api/pedido/parcela/baixa", "/api/pedido/parcela/baixa/cancelar"]);
+    expect((await client.testConnection()).message).toContain("sucesso");
+  });
+});
