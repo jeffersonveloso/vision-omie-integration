@@ -1,0 +1,16 @@
+{
+  "Pagina": 1,
+  "Linhas": 50,
+  "TotalRegistros": 146,
+  "TotalPaginas": 3,
+  "Pedidos": [
+    {
+      "CodigoPedido": 14062,
+      "CodigoEmpresa": 1,
+      "DataCadastro": "2026-10-01T08:46:59.87",
+      "DataAtualizacao": "2026-10-01T08:47:58.453",
+      "CodigoStatus": 2,
+      "DescricaoStatus": "CONCLUÍDO / FATURADO"
+    }
+  ]
+}

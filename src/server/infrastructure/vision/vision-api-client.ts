@@ -4,6 +4,7 @@ import type {
   VisionCancellationPayload,
   VisionGateway,
   VisionListQuery,
+  VisionOrderPage,
   VisionPaymentCancellationPayload,
   VisionPaymentPayload,
   VisionRejectionPayload,
@@ -11,13 +12,21 @@ import type {
 import { IntegrationError } from "@/server/modules/integration/domain/integration-error";
 import { parseVisionOrderSummary, type VisionOrderPayload, type VisionOrderSummary } from "@/server/modules/integration/domain/vision-order";
 import { describeNetworkError, isAbortOrNetworkError, readBody } from "../http/json-http";
+import { normalizeVisionJson } from "./vision-json";
 
 export interface VisionClientConfig {
   baseUrl: string;
   username: string;
   password: string;
   timeoutMs: number;
+  /** Fuso das datas sem deslocamento que o Vision devolve (ex.: America/Sao_Paulo). */
+  timeZone: string;
 }
+
+const positiveInt = (v: unknown): number | null => {
+  const n = typeof v === "number" ? v : typeof v === "string" && v.trim() ? Number(v) : NaN;
+  return Number.isInteger(n) && n > 0 ? n : null;
+};
 
 /** Usado só quando o token não traz a validade (o JWT do Vision traz: 120 min). */
 const TOKEN_FALLBACK_TTL_MS = 115 * 60_000;
@@ -209,20 +218,28 @@ export class VisionApiClient implements VisionGateway {
     });
   }
 
-  async listUpdatedOrders(query: VisionListQuery, recorder?: CallRecorder): Promise<VisionOrderSummary[]> {
-    const body = await this.request("GET", "/api/pedido/busca/atualizados", {
+  async listUpdatedOrders(query: VisionListQuery, recorder?: CallRecorder): Promise<VisionOrderPage> {
+    const raw = await this.request("GET", "/api/pedido/busca/atualizados", {
       query: { dataInicial: query.dataInicial, dataFinal: query.dataFinal, codigoStatus: query.codigoStatus ?? undefined, pagina: query.pagina, linhas: query.linhas },
       recorder,
       operation: `GET /api/pedido/busca/atualizados (página ${query.pagina})`,
     });
-    return extractArray(body).map(parseVisionOrderSummary).filter((s): s is VisionOrderSummary => s !== null);
+    const body = normalizeVisionJson(raw, this.config.timeZone);
+    const meta = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
+    return {
+      orders: extractArray(body).map(parseVisionOrderSummary).filter((s): s is VisionOrderSummary => s !== null),
+      pageSize: positiveInt(meta.linhas),
+      totalPages: positiveInt(meta.totalPaginas) ?? (meta.totalPaginas === 0 ? 0 : null),
+      totalRecords: positiveInt(meta.totalRegistros) ?? (meta.totalRegistros === 0 ? 0 : null),
+    };
   }
 
   async getOrder(code: number, recorder?: CallRecorder): Promise<VisionOrderPayload> {
-    const body = await this.request("GET", `/api/pedido/busca/${code}`, { recorder, operation: `GET /api/pedido/busca/${code}` });
+    const raw = await this.request("GET", `/api/pedido/busca/${code}`, { recorder, operation: `GET /api/pedido/busca/${code}` });
+    const body = normalizeVisionJson(raw, this.config.timeZone);
     const order = extractOrder(body);
     if (!order) {
-      throw new IntegrationError({ category: "VISION_BUSINESS", code: "ORDER_NOT_FOUND", message: `O Vision não retornou os dados do pedido ${code}.`, hint: "Confirme se o pedido existe e está disponível para integração.", retryable: true, details: { body } });
+      throw new IntegrationError({ category: "VISION_BUSINESS", code: "ORDER_NOT_FOUND", message: `O Vision não retornou os dados do pedido ${code}.`, hint: "Confirme se o pedido existe e está disponível para integração.", retryable: true, details: { body: raw } });
     }
     return order;
   }

@@ -1,3 +1,5 @@
+import type { LineTotalPolicy } from "@/server/modules/integration/domain/line-totals";
+
 /**
  * Parâmetros operacionais da integração, editáveis pela tela de Configurações.
  * Credenciais (Vision) ficam em variáveis de ambiente, nunca aqui.
@@ -51,6 +53,8 @@ export interface IntegrationSettings {
     sendVisionInstallments: boolean;
     /** Atualiza o cadastro do cliente no Omie a cada envio (UpsertClienteCpfCnpj). */
     upsertCustomer: boolean;
+    /** O que fazer quando quantidade × valor unitário não fecha o valor total da linha no Vision. */
+    lineTotalMismatch: LineTotalPolicy;
   };
   /** Convenções dos payloads de retorno à ControllerAPI do Vision (validar com o suporte Vision). */
   visionReturn: {
@@ -105,6 +109,7 @@ export const DEFAULT_SETTINGS: IntegrationSettings = {
     integrationCodePrefix: "VIS",
     sendVisionInstallments: true,
     upsertCustomer: true,
+    lineTotalMismatch: "BLOCK",
   },
   visionReturn: {
     codigoIntegracao: 1,

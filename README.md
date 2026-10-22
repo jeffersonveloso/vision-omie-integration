@@ -52,9 +52,11 @@ npm run demo:seed           # cadastra 2 contas, regras e de-para e roda coleta 
 O banco sem `DATABASE_URL` é um PostgreSQL embarcado (PGlite) em `./.data/pglite`. Para apagar os dados
 de teste, apague essa pasta.
 
-Os simuladores trazem 7 pedidos que cobrem os casos principais: pedido de produtos, de serviços, misto
-(PV + OS), produto sem de-para (erro de mapeamento), CNPJ sem conta (erro de roteamento), NF rejeitada e
-pedido com baixa de parcela.
+Os simuladores respondem no mesmo formato da ControllerAPI real (PascalCase, envelope paginado, pedido
+sem CNPJ da empresa) e trazem 8 pedidos: produtos, serviços, misto (PV + OS), produto sem de-para (erro
+de mapeamento), empresa sem conta Omie (erro de roteamento), NF rejeitada, pedido com baixa de parcela e
+uma cópia do caso real 14062 (serviço em KG cujo total não fecha e forma de pagamento "SEM FINANCEIRO").
+O `demo:seed` associa as empresas 1 e 2 às contas na tabela *Empresa Vision → CNPJ*.
 
 ## Ambiente real
 
@@ -82,8 +84,9 @@ Primeiros passos na aplicação:
 1. **Configurações** — teste a conexão com o Vision, defina as situações elegíveis, o caminho do CNPJ da
    empresa no pedido e as convenções do retorno (veja os pontos a validar no guia, seção 8).
 2. **Contas Omie** — cadastre uma conta por base e use *Testar conexão* (confere o CNPJ da base).
-3. **Mapeamentos** — defina categoria e conta corrente (obrigatórias no Omie) e preencha os de-para de
-   produtos e serviços de cada conta. Use *Simular mapeamento* em um pedido antes de ligar a coleta.
+3. **Mapeamentos** — em cada conta, associe o código da empresa do Vision na tabela *Empresa Vision →
+   CNPJ* (o pedido do Vision não traz o CNPJ). Defina categoria e conta corrente (obrigatórias no Omie) e
+   preencha os de-para de produtos e serviços (serviços pelo `codigoMaterial` do Vision). Use *Simular mapeamento* em um pedido antes de ligar a coleta.
 4. **Painel / Pedidos** — acompanhe, corrija e reenvie.
 
 ## Scripts

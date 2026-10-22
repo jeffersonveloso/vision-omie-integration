@@ -65,9 +65,9 @@ sequenceDiagram
 | Regra | Como foi implementada |
 |---|---|
 | Consulta incremental por `dataAtualizacao` | Checkpoint `vision.orders.updated` guarda a maior `dataAtualizacao` vista; a próxima janela começa nela menos a sobreposição (padrão 1 dia). Primeira execução: últimos 7 dias. |
-| Paginação em lotes | Laço por `pagina` (50 por página, configurável) até vir menos que `linhas` registros (limite de segurança: 500 páginas). |
+| Paginação em lotes | Laço por `pagina` (50 por página, configurável) até o `TotalPaginas` informado pelo Vision (limite de segurança: 500 páginas). |
 | Idempotência (empresa + pedido) | Um agregado por `codigoPedido` (índice único). No Omie, códigos de integração determinísticos (`VIS-14100`, `VIS-14100-OS`, `VIS-CLI-501`): antes de incluir, consulta pelo código; se a inclusão retornar "já cadastrado", vincula o existente. Testado com resposta perdida no meio da inclusão. |
-| Dual CNPJ | `AccountRouter`: CNPJ da empresa no pedido → conta Omie com o mesmo CNPJ. Alternativa: tabela de-para "Empresa Vision → CNPJ". |
+| Dual CNPJ | `AccountRouter`. O pedido real do Vision traz só `CodigoEmpresa`, então a empresa é associada à conta Omie pela tabela "Empresa Vision → CNPJ". Se o Vision passar a mandar o CNPJ, ele tem prioridade. |
 | Logs completos | Cada chamada externa vira um registro com request, response, HTTP e duração (segredos removidos, textos grandes truncados). |
 | Reprocessamento | Novas tentativas automáticas com espera crescente para falhas temporárias; reenvio manual (individual, selecionados ou por causa). |
 | Erros e alertas | Erro classificado (categoria, mensagem, dica, etapa, dados técnicos), visível no pedido, na lista e no painel. |
@@ -174,7 +174,12 @@ Objetivo: nenhum campo Vision → Omie fixo no código. Tudo é configurável na
 * **Tabelas de-para:** definidas uma vez (chave estável), preenchidas **por conta** (os códigos do Omie
   mudam por base). Importação colando da planilha. Tabelas de sistema: Produtos, Serviços,
   Empresa Vision → CNPJ, Conta corrente (retorno de baixas).
-* **Campos do Vision disponíveis:** catálogo do Swagger + campos descobertos nos pedidos recebidos.
+* **Campos do Vision disponíveis:** catálogo do Swagger + campos descobertos nos pedidos recebidos,
+  sempre em camelCase (o adaptador converte o PascalCase da API: `Cliente.CPFCNPJ` → `cliente.cpfcnpj`).
+* **Serviços:** o de-para padrão usa `codigoMaterial`, porque no Vision o `CodigoServico` das linhas
+  de serviço chega 0.
+* **Checagens além do mapeamento** (no envio e na simulação): linha cujo `quantidade × valorUnitario`
+  não fecha o `valorTotal` e condição de pagamento 999 em pedido sem parcelas.
 * **Simular mapeamento** (no pedido): mostra o payload final, a origem de cada campo e as pendências,
   sem chamar o Omie.
 
@@ -219,28 +224,34 @@ A integração:
 
 ## 8. Pontos a validar na homologação
 
-O Swagger do Vision descreve as respostas de `busca/atualizados`, `busca/{codigo}` e `login` apenas como
-`object`. O código foi escrito tolerante, mas confirme com dados reais:
+As respostas reais do login, da lista e do pedido completo foram conferidas em 21/10/2026 (detalhes em
+[referencia-api-vision.md](./referencia-api-vision.md#o-que-o-formato-real-mudou-na-integração)):
+JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identificado por
+`CodigoMaterial`, pedido sem CNPJ da empresa e pedido "SEM FINANCEIRO" sem parcelas.
 
-1. ✅ **Resposta do login** — confirmada em 21/10/2026: JWT como string JSON, validade de 120 min na
-   claim `exp`. O cliente renova pelo próprio token. (`vision-api-client.ts › extractToken`, `tokenReuseUntil`)
-2. **Lista de atualizados** — aceita array puro ou envelope (`pedidos`, `dados`, `data`...); cada item
-   precisa de `codigoPedido`/`codigo` e `dataAtualizacao`. (`vision-order.ts › parseVisionOrderSummary`)
-3. **CNPJ da empresa no pedido** — a definição `Pedido` traz `codigoEmpresa` e `razaoSocialEmpresa`, mas
-   não um CNPJ. Configure em *Configurações › Roteamento* o caminho real, ou preencha a tabela
-   *Empresa Vision → CNPJ* em cada conta.
-4. **Convenções do retorno** — `codigoIntegracao` (enum `[1]`), `tipoNotaFiscal` (enum `[0,1]`), `tipo`,
+1. ✅ **Resposta do login** — JWT como string JSON, 120 min. O cliente renova pelo próprio token.
+2. ✅ **Lista de atualizados** — envelope `{ Pagina, Linhas, TotalRegistros, TotalPaginas, Pedidos }`.
+3. ✅ **CNPJ da empresa no pedido** — não vem. Em cada conta Omie, cadastre na tabela
+   *Empresa Vision → CNPJ* o código da empresa do Vision que ela atende.
+4. **Quantidade × valor unitário** — no pedido 14062 o total não fecha (271 × 5,18 = 1.403,78; total
+   1.408,70). Pedir ao Vision as casas decimais reais de `Quantidade`. Enquanto isso, a integração
+   bloqueia essas linhas (ou recalcula, conforme *Configurações › Roteamento e documentos*).
+5. **Pedidos SEM FINANCEIRO** — vêm sem parcelas. Definir a condição de pagamento do Omie para eles
+   (regra fixa ou de-para por `codigoFormaPagamento`) e se devem gerar título no Omie.
+6. **Convenções do retorno** — `codigoIntegracao` (enum `[1]`), `tipoNotaFiscal` (enum `[0,1]`), `tipo`,
    `especie`, `modelo` e `origemParcela` (enum `[0,1,2]`) estão em *Configurações › Convenções do
    retorno* e precisam da confirmação do suporte do Vision.
-5. **Código da baixa no Vision** — o cancelamento de baixa usa o `codigoBaixa` devolvido pelo
+7. **Código da baixa no Vision** — o cancelamento de baixa usa o `codigoBaixa` devolvido pelo
    `POST parcela/baixa`; se o Vision não devolver, a integração envia o `nCodBaixa` do Omie.
-6. **Situação da NF no Omie** — autorizada = `chave_nfe` com 44 dígitos e `protocolo`; rejeitada =
+8. **Situação da NF no Omie** — autorizada = `chave_nfe` com 44 dígitos e `protocolo`; rejeitada =
    mensagens sem chave. Confira com uma rejeição real de homologação.
-7. **Baixas** — lidas de `financas/mf › ListarMovimentos` filtrando `nCodOS` (pedido de venda ou OS).
+9. **Baixas** — lidas de `financas/mf › ListarMovimentos` filtrando `nCodOS` (pedido de venda ou OS).
    Confirme baixas parciais e estornos.
-8. **Situações elegíveis** — defina quais `codigoStatus` do Vision podem ser integrados.
-9. **Categoria e conta corrente** são obrigatórias no Omie e não existem no pedido do Vision: configure
-   antes de ligar a coleta (o Painel e a tela de regras avisam).
+10. **Situações elegíveis** — defina quais `codigoStatus` do Vision podem ser integrados. O exemplo real
+    veio com `2 — CONCLUÍDO / FATURADO`: confirme se pedidos já faturados por outro caminho devem ficar de fora
+    e a partir de que data a integração deve começar, para não reenviar o histórico.
+11. **Categoria e conta corrente** são obrigatórias no Omie e não existem no pedido do Vision: configure
+    antes de ligar a coleta (o Painel e a tela de regras avisam).
 
 ---
 
@@ -248,11 +259,11 @@ O Swagger do Vision descreve as respostas de `busca/atualizados`, `busca/{codigo
 
 | Fase | Entregas | Situação neste repositório |
 |---|---|---|
-| 1. Preparação | Credenciais, ambientes, validação dos endpoints, mapeamentos | Swagger e documentação Omie analisados; itens do §8 para validar |
+| 1. Preparação | Credenciais, ambientes, validação dos endpoints, mapeamentos | Login e consultas do Vision validados com respostas reais; itens do §8 para validar |
 | 2. Fundação | Projeto, persistência, configuração, logs, processamento | Concluída |
 | 3. Vision → Omie | Coleta incremental, pedido completo, clientes, roteamento, PV e OS | Concluída |
 | 4. Omie → Vision | Eventos fiscais, títulos, baixas, cancelamentos | Concluída |
-| 5. Resiliência e testes | Idempotência, retries, testes, exceções | Concluída (30 testes, inclusive ponta a ponta) |
+| 5. Resiliência e testes | Idempotência, retries, testes, exceções | Concluída (46 testes, inclusive ponta a ponta e com as respostas reais do Vision) |
 | 6. Homologação | Testes ponta a ponta reais, correções, documentação, implantação | Próximo passo |
 
 ### Checklist de homologação (critérios de aceite da proposta)

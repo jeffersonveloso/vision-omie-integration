@@ -65,15 +65,18 @@ export class CollectVisionOrders {
     try {
       for (const status of statuses) {
         for (let page = 1; page <= MAX_PAGES; page++) {
-          const batch = await vision.listUpdatedOrders(
+          const result = await vision.listUpdatedOrders(
             { dataInicial: windowFrom, dataFinal: windowTo, codigoStatus: status, pagina: page, linhas: settings.sync.pageSize },
             recorder,
           );
-          for (const summary of batch) {
+          for (const summary of result.orders) {
             const current = collected.get(summary.code);
             if (!current || (summary.updatedAt?.getTime() ?? 0) >= (current.updatedAt?.getTime() ?? 0)) collected.set(summary.code, summary);
           }
-          if (batch.length < settings.sync.pageSize) break;
+          // O Vision informa TotalPaginas; sem ele, para quando a página vier incompleta
+          // (comparando com as linhas que o Vision usou, que podem diferir das pedidas).
+          const lastPage = result.totalPages !== null ? page >= result.totalPages : result.orders.length < (result.pageSize ?? settings.sync.pageSize);
+          if (lastPage || result.orders.length === 0) break;
         }
       }
 

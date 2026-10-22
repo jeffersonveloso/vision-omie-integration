@@ -132,7 +132,7 @@ export interface EffectiveRule {
   custom: boolean;
 }
 
-export type MappingIssueKind = "MISSING_REQUIRED" | "VALUE_MAP_MISSING" | "VALUE_MAP_NOT_FOUND" | "INVALID_VALUE" | "TRUNCATED";
+export type MappingIssueKind = "MISSING_REQUIRED" | "VALUE_MAP_MISSING" | "VALUE_MAP_NOT_FOUND" | "INVALID_VALUE" | "TRUNCATED" | "LINE_TOTAL_MISMATCH" | "NO_INSTALLMENTS";
 
 export interface MappingIssue {
   severity: "error" | "warning";

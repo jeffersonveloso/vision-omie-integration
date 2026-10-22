@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import lista from "./__fixtures__/busca-atualizados.json";
+import pedido from "./__fixtures__/pedido-servico-sem-financeiro.json";
 import { extractToken, tokenReuseUntil, VisionApiClient } from "./vision-api-client";
 
 /** JWT fictício com as mesmas claims do token da ControllerAPI (unique_name, role, nbf, exp, iat). */
@@ -45,7 +47,7 @@ describe("VisionApiClient", () => {
     return new Response("[]", { status: 200, headers: { "Content-Type": "application/json" } });
   }) as typeof fetch;
 
-  const client = () => new VisionApiClient({ baseUrl: "http://vision.local/ControllerAPI", username: "OMIE", password: "x", timeoutMs: 5000 }, fakeFetch);
+  const client = () => new VisionApiClient({ baseUrl: "http://vision.local/ControllerAPI", username: "OMIE", password: "x", timeoutMs: 5000, timeZone: "America/Sao_Paulo" }, fakeFetch);
   const list = (c: VisionApiClient) => c.listUpdatedOrders({ dataInicial: "2026-10-01", dataFinal: "2026-10-21", pagina: 1, linhas: 50 });
 
   beforeEach(() => {
@@ -76,5 +78,30 @@ describe("VisionApiClient", () => {
     await list(c);
     expect(logins).toBe(2);
     expect(seenTokens[1]).not.toBe(seenTokens[2]);
+  });
+});
+
+describe("VisionApiClient com as respostas reais da ControllerAPI", () => {
+  const realFetch = (async (input: string | URL | Request) => {
+    const url = String(input);
+    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } });
+    if (url.endsWith("/api/login")) return json(jwt(Math.floor(Date.now() / 1000)));
+    if (url.includes("/api/pedido/busca/atualizados")) return json(lista);
+    if (url.endsWith("/api/pedido/busca/14062")) return json(pedido);
+    return new Response("{}", { status: 404 });
+  }) as typeof fetch;
+  const client = new VisionApiClient({ baseUrl: "http://vision.local/ControllerAPI", username: "OMIE", password: "x", timeoutMs: 5000, timeZone: "America/Sao_Paulo" }, realFetch);
+
+  it("devolve os pedidos e a paginação informada pelo Vision", async () => {
+    const page = await client.listUpdatedOrders({ dataInicial: "2026-10-01", dataFinal: "2026-10-13", pagina: 1, linhas: 50 });
+    expect(page).toMatchObject({ pageSize: 50, totalPages: 3, totalRecords: 146 });
+    expect(page.orders.map((o) => o.code)).toEqual([14062]);
+  });
+
+  it("devolve o pedido completo normalizado", async () => {
+    const order = await client.getOrder(14062);
+    expect(order.codigo).toBe(14062);
+    expect(order.servicos?.[0]).toMatchObject({ codigoMaterial: 3, codigoServico: 0, quantidade: 271, valorTotal: 1408.7, siglaUnidadeVenda: "KG" });
+    expect(order.parcelas).toEqual([]);
   });
 });

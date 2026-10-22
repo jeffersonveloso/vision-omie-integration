@@ -88,7 +88,7 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   // Adaptadores externos
   const vision: VisionGateway =
     overrides.vision ??
-    new VisionApiClient({ baseUrl: config.VISION_API_URL, username: config.VISION_USERNAME, password: config.VISION_PASSWORD, timeoutMs: config.VISION_TIMEOUT_MS }, overrides.fetchImpl);
+    new VisionApiClient({ baseUrl: config.VISION_API_URL, username: config.VISION_USERNAME, password: config.VISION_PASSWORD, timeoutMs: config.VISION_TIMEOUT_MS, timeZone: config.APP_TIMEZONE }, overrides.fetchImpl);
   const omie: OmieGatewayFactory =
     overrides.omie ?? new OmieGatewayFactoryImpl({ baseUrl: config.OMIE_API_URL, timeoutMs: config.OMIE_TIMEOUT_MS, maxInlineRetries: 2, readCacheTtlMs: config.OMIE_READ_CACHE_MS }, new OmieRateLimiter(), overrides.fetchImpl);
   const downloader = new FetchDocumentDownloader();

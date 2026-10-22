@@ -26,7 +26,8 @@ const visionOrder = {
     { seq: 1, codigoMaterial: 123, quantidade: 2, valorUnitario: 150, porcentagemDesconto: 0 },
     { seq: 2, codigoMaterial: 999, quantidade: 1, valorUnitario: "80,50", porcentagemDesconto: 5 },
   ],
-  servicos: [{ seq: 1, codigoServico: 77, quantidade: 1, valorUnitario: 300 }],
+  // Formato real do Vision: CodigoServico chega 0 e o código do serviço vem em CodigoMaterial.
+  servicos: [{ seq: 0, codigoItem: 1, codigoServico: 0, codigoMaterial: 77, quantidade: 1, valorUnitario: 300 }],
 };
 
 function resolver(entries: Record<string, Record<string, string>>): ValueMapResolver {

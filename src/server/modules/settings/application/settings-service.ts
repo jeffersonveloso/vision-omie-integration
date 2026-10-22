@@ -43,6 +43,7 @@ export const settingsSchema = z.object({
     integrationCodePrefix: z.string().trim().regex(/^[A-Z0-9]{1,10}$/, "Use até 10 letras maiúsculas/números."),
     sendVisionInstallments: z.boolean(),
     upsertCustomer: z.boolean(),
+    lineTotalMismatch: z.enum(["BLOCK", "ADJUST_QUANTITY", "ADJUST_UNIT_PRICE"]),
   }),
   visionReturn: z.object({
     codigoIntegracao: z.coerce.number().int(),

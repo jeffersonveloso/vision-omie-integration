@@ -19,7 +19,7 @@ export const ERROR_CATEGORIES = [
 export type ErrorCategory = (typeof ERROR_CATEGORIES)[number];
 
 export const ERROR_CATEGORY_LABELS: Record<ErrorCategory, string> = {
-  ROUTING: "Roteamento por CNPJ",
+  ROUTING: "Roteamento para a conta Omie",
   MAPPING: "Mapeamento de dados",
   VALIDATION: "Dados do pedido",
   OMIE_BUSINESS: "Recusado pelo Omie",
@@ -50,7 +50,7 @@ export type IntegrationStep = (typeof INTEGRATION_STEPS)[number];
 export const INTEGRATION_STEP_LABELS: Record<IntegrationStep, string> = {
   COLLECT: "Coleta no Vision",
   FETCH_DETAIL: "Consulta do pedido completo",
-  ROUTE: "Roteamento por CNPJ",
+  ROUTE: "Roteamento",
   MAP: "Mapeamento",
   CUSTOMER_SYNC: "Sincronização do cliente",
   SEND_SALES_ORDER: "Envio do pedido de venda",

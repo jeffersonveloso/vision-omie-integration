@@ -81,11 +81,13 @@ export class ReconcileOrder {
     const gateway = omie.forAccount(account.credentials(), log.recorder());
     const builder = new VisionReturnBuilder(settings.visionReturn);
     const parcels = order.visionPayload ? snapshotVisionOrder(order.visionPayload).parcels : [];
+    // Baixas só existem para parcelas do Vision: pedido sem parcelas não tem retorno financeiro.
+    const financial = settings.reconcile.returnFinancial && parcels.length > 0;
     let returned = 0;
 
     for (const doc of order.documents.filter((d) => d.isSent())) {
       const label = DOCUMENT_KIND_LABELS[doc.kind];
-      if (this.isSettled(doc)) continue;
+      if (this.isSettled(doc, financial)) continue;
 
       // 7. Situação fiscal
       log.step("CHECK_FISCAL");
@@ -94,7 +96,7 @@ export class ReconcileOrder {
       if (doc.applyFiscal(fiscal, clock.now())) log.info(this.describeFiscal(label, previous, fiscal));
 
       // Títulos (gerados no faturamento)
-      if (settings.reconcile.returnFinancial && (doc.status === "AUTHORIZED" || doc.status === "CANCELLED")) {
+      if (financial && (doc.status === "AUTHORIZED" || doc.status === "CANCELLED")) {
         log.step("CHECK_FINANCIAL");
         const titles = await gateway.listFinancialTitles(doc.omieId!);
         doc.syncTitles(titles, clock.now());
@@ -106,7 +108,7 @@ export class ReconcileOrder {
       returned += await this.returnFiscal(order, doc, fiscal, builder, settings, log, vision);
 
       // Retornos financeiros ao Vision
-      if (settings.reconcile.returnFinancial) returned += await this.returnFinancial(order, doc, builder, settings, log, vision);
+      if (financial) returned += await this.returnFinancial(order, doc, builder, settings, log, vision);
     }
     return returned;
   }
@@ -210,10 +212,15 @@ export class ReconcileOrder {
     return out;
   }
 
-  /** Documentos encerrados não consomem mais chamadas à API do Omie. */
-  private isSettled(doc: OmieDocument): boolean {
+  /**
+   * Documentos encerrados não consomem mais chamadas à API do Omie.
+   * Sem retorno financeiro (pedido sem parcelas no Vision, ex.: "SEM FINANCEIRO"), encerra assim que a
+   * autorização foi informada; sem isso seria consultado a cada execução até sair da janela de acompanhamento.
+   */
+  private isSettled(doc: OmieDocument, financial: boolean): boolean {
     if (doc.hasPendingReturns()) return false;
     if (doc.status === "CANCELLED") return Boolean(doc.fiscalReturn.cancellation);
+    if (doc.status === "AUTHORIZED" && doc.fiscalReturn.authorization && !financial) return true;
     if (doc.status === "AUTHORIZED" && doc.fiscalReturn.authorization && doc.titles.length > 0) {
       return doc.titles.every((t) => (t.openAmount ?? t.amount) <= 0.005 && t.payments.every((p) => p.returnedAt || p.cancelledAt));
     }

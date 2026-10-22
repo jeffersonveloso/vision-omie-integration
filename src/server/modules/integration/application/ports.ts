@@ -108,8 +108,17 @@ export interface VisionListQuery {
   linhas: number;
 }
 
+/** Página de `busca/atualizados`. O Vision devolve `{ Pagina, Linhas, TotalRegistros, TotalPaginas, Pedidos }`. */
+export interface VisionOrderPage {
+  orders: VisionOrderSummary[];
+  /** Linhas por página que o Vision efetivamente usou (pode diferir do pedido). */
+  pageSize: number | null;
+  totalPages: number | null;
+  totalRecords: number | null;
+}
+
 export interface VisionGateway {
-  listUpdatedOrders(query: VisionListQuery, recorder?: CallRecorder): Promise<VisionOrderSummary[]>;
+  listUpdatedOrders(query: VisionListQuery, recorder?: CallRecorder): Promise<VisionOrderPage>;
   getOrder(code: number, recorder?: CallRecorder): Promise<VisionOrderPayload>;
   sendInvoiceAuthorization(payload: VisionAuthorizationPayload, recorder?: CallRecorder): Promise<unknown>;
   sendInvoiceRejection(payload: VisionRejectionPayload, recorder?: CallRecorder): Promise<unknown>;

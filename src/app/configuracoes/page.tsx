@@ -6,10 +6,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/app-shell";
 import { Button } from "@/components/ui/button";
-import { Field, Input, Label, Switch, Textarea } from "@/components/ui/form-controls";
+import { Field, Input, Label, NativeSelect, Switch, Textarea } from "@/components/ui/form-controls";
 import { Mono, Panel, PanelHeader, Skeleton } from "@/components/ui/misc";
 import { api, ApiError } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
+import { LINE_TOTAL_POLICY_LABELS, type LineTotalPolicy } from "@/server/modules/integration/domain/line-totals";
 import type { IntegrationSettings } from "@/server/modules/settings/domain/integration-settings";
 
 interface SettingsResponse {
@@ -157,7 +158,7 @@ function SettingsForm({ initial, data }: { initial: IntegrationSettings; data: S
         <PanelHeader title="Roteamento e documentos" />
         <div className="grid gap-5 px-5 py-4">
           <div className="grid gap-4 lg:grid-cols-2">
-            <Field label="Onde está o CNPJ da empresa no pedido do Vision" htmlFor="cnpj-paths" error={err("routing.cnpjFieldPaths")} hint="Um caminho por linha, em ordem de prioridade. Sem CNPJ, a integração usa a tabela Empresa Vision → CNPJ.">
+            <Field label="Onde está o CNPJ da empresa no pedido do Vision" htmlFor="cnpj-paths" error={err("routing.cnpjFieldPaths")} hint="Um caminho por linha, em ordem de prioridade. O pedido do Vision hoje não traz esse CNPJ, só o código da empresa: nesse caso a integração usa a tabela Empresa Vision → CNPJ de cada conta.">
               <Textarea id="cnpj-paths" defaultValue={s.routing.cnpjFieldPaths.join("\n")} onBlur={(e) => patch("routing", { cnpjFieldPaths: e.target.value.split("\n").map((x) => x.trim()).filter(Boolean) })} className="min-h-24 font-mono text-[13px]" />
             </Field>
             <div className="grid content-start gap-4">
@@ -170,6 +171,19 @@ function SettingsForm({ initial, data }: { initial: IntegrationSettings; data: S
           <ToggleRow id="send-os" label="Gerar ordem de serviço para serviços" checked={s.documents.sendServiceOrders} onChange={(sendServiceOrders) => patch("documents", { sendServiceOrders })} />
           <ToggleRow id="send-parcels" label="Enviar as parcelas do Vision" description="Usa a condição de pagamento 999 (parcelas manuais) com os vencimentos e valores do pedido." checked={s.documents.sendVisionInstallments} onChange={(sendVisionInstallments) => patch("documents", { sendVisionInstallments })} />
           <ToggleRow id="upsert" label="Atualizar o cadastro do cliente no Omie a cada envio" description="Desligado, o cliente é cadastrado só na primeira vez." checked={s.documents.upsertCustomer} onChange={(upsertCustomer) => patch("documents", { upsertCustomer })} />
+          <Field
+            label="Quando quantidade × valor unitário não fecha o total da linha"
+            htmlFor="line-total"
+            hint="A API do Vision pode arredondar a quantidade ou o valor unitário. Recalcular faz a nota fechar o total do pedido; linhas com desconto sempre bloqueiam."
+          >
+            <NativeSelect id="line-total" value={s.documents.lineTotalMismatch} onChange={(e) => patch("documents", { lineTotalMismatch: e.target.value as LineTotalPolicy })} className="max-w-md">
+              {(Object.keys(LINE_TOTAL_POLICY_LABELS) as LineTotalPolicy[]).map((p) => (
+                <option key={p} value={p}>
+                  {LINE_TOTAL_POLICY_LABELS[p]}
+                </option>
+              ))}
+            </NativeSelect>
+          </Field>
         </div>
       </Panel>
 

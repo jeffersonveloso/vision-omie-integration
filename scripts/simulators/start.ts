@@ -23,8 +23,9 @@ async function main() {
   console.log(`  Omie API            → ${omie.url}\n`);
   console.log("Contas Omie para cadastrar:");
   for (const c of [COMPANIES.matriz, COMPANIES.filial]) console.log(`  ${c.name}\n    CNPJ ${c.cnpj}  App Key ${c.appKey}  App Secret ${c.appSecret}`);
-  console.log(`\nPedido 14104 usa o CNPJ ${COMPANIES.semConta.cnpj} (sem conta → erro de roteamento).`);
-  console.log("Pedido 14103 usa o material 999 (sem de-para → erro de mapeamento). Pedido 14105 terá a NF rejeitada.\n");
+  console.log("\nO Vision não manda o CNPJ da empresa: associe as empresas 1 e 2 às contas na tabela \"Empresa Vision → CNPJ\".");
+  console.log(`Pedido 14104 é da empresa ${COMPANIES.semConta.code} (sem conta → erro de roteamento). Pedido 14103 usa o material 999 (sem de-para → erro de mapeamento).`);
+  console.log("Pedido 14105 terá a NF rejeitada. Pedido 14107 repete o caso real 14062: total que não fecha e sem parcelas.\n");
 }
 
 void main();

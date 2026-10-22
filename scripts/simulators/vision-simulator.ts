@@ -14,6 +14,18 @@ export interface VisionSimulator {
 
 const BASE = "/ControllerAPI";
 
+/** Siglas que o Vision devolve inteiras em maiúsculas (CPFCNPJ, CEP, UF...). */
+const UPPER_KEYS: Record<string, string> = { cpfcnpj: "CPFCNPJ", cep: "CEP", uf: "UF", ie: "IE", im: "IM", rg: "RG" };
+
+/** O Vision responde em PascalCase: `{ Codigo, Cliente: { CPFCNPJ }, Servicos: [...] }`. */
+export function toVisionWire(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(toVisionWire);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([k, v]) => [UPPER_KEYS[k] ?? k.charAt(0).toUpperCase() + k.slice(1), toVisionWire(v)]));
+  }
+  return value;
+}
+
 /** JWT com as mesmas claims do Vision (unique_name, role, nbf, exp, iat; validade de 120 min). Assinatura fictícia. */
 function simulatedJwt(usuario: string): string {
   const b64 = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -59,21 +71,22 @@ export async function startVisionSimulator(port = 0, credentials = { usuario: "O
         .filter((o) => String(o.dataAtualizacao).slice(0, 10) >= from && String(o.dataAtualizacao).slice(0, 10) <= to)
         .filter((o) => !status || String(o.codigoStatus) === status)
         .sort((a, b) => String(a.dataAtualizacao).localeCompare(String(b.dataAtualizacao)) || Number(a.codigo) - Number(b.codigo));
+      // Envelope real: { Pagina, Linhas, TotalRegistros, TotalPaginas, Pedidos: [...] }
       const pageItems = filtered.slice((page - 1) * lines, page * lines).map((o) => ({
-        codigoPedido: o.codigo,
-        codigoEmpresa: o.codigoEmpresa,
-        codigoStatus: o.codigoStatus,
-        descricaoStatus: o.descricaoStatus,
-        dataAtualizacao: o.dataAtualizacao,
-        cliente: { razaoSocial: (o.cliente as Record<string, unknown>)?.razaoSocial },
+        CodigoPedido: o.codigo,
+        CodigoEmpresa: o.codigoEmpresa,
+        DataCadastro: o.dataCadastro,
+        DataAtualizacao: o.dataAtualizacao,
+        CodigoStatus: o.codigoStatus,
+        DescricaoStatus: o.descricaoStatus,
       }));
-      return send(res, 200, pageItems);
+      return send(res, 200, { Pagina: page, Linhas: lines, TotalRegistros: filtered.length, TotalPaginas: Math.ceil(filtered.length / lines), Pedidos: pageItems });
     }
 
     const detail = /^\/api\/pedido\/busca\/(\d+)$/.exec(path);
     if (req.method === "GET" && detail) {
       const found = orders.find((o) => String(o.codigo) === detail[1]);
-      return found ? send(res, 200, found) : send(res, 404, { Message: `Pedido ${detail[1]} não encontrado.` });
+      return found ? send(res, 200, toVisionWire(found)) : send(res, 404, { Message: `Pedido ${detail[1]} não encontrado.` });
     }
 
     const returnEndpoints = ["/api/pedido/nota/autorizacao", "/api/pedido/nota/rejeicao", "/api/pedido/nota/cancelamento", "/api/pedido/parcela/baixa", "/api/pedido/parcela/baixa/cancelar"];

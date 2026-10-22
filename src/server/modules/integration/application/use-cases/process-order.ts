@@ -14,6 +14,7 @@ import type { AccountRouter } from "../account-router";
 import type { CustomerSyncService } from "../customer-sync";
 import { ExecutionLog } from "../execution-log";
 import { OmiePayloadBuilder, splitParcels } from "../omie-payload-builder";
+import { installmentIssues, prepareLines } from "../order-checks";
 import type { OmieGatewayFactory, VisionGateway } from "../ports";
 
 export type ProcessOutcome =
@@ -90,7 +91,7 @@ export class ProcessOrder {
     order.attachVisionPayload(payload, snapshot, clock.now());
     if (!order.hasSentDocuments()) order.acknowledgeVisionUpdate(clock.now());
 
-    // 2. Roteamento por CNPJ
+    // 2. Roteamento (CNPJ da empresa, ou código da empresa pela tabela Empresa Vision → CNPJ)
     log.step("ROUTE");
     const route = await router.resolve(payload, settings);
     if (order.omieAccountId && order.omieAccountId !== route.account.id && order.hasSentDocuments()) {
@@ -125,11 +126,30 @@ export class ProcessOrder {
 
     // 4. Mapeamento (tudo é validado antes de enviar qualquer coisa ao Omie)
     log.step("MAP");
+    const pendingTypes = new Set<string>(pending.map((d) => d.kind));
+    const lines = prepareLines(payload, settings.documents.lineTotalMismatch);
+    const lineIssues = lines.issues.filter((i) => pendingTypes.has(i.documentType));
+    const lineErrors = lineIssues.filter((i) => i.severity === "error");
+    if (lineErrors.length) {
+      throw new IntegrationError({
+        category: "VALIDATION",
+        code: "LINE_TOTAL_MISMATCH",
+        message: lineErrors.length === 1 ? lineErrors[0].message : `${lineErrors[0].message} (+${lineErrors.length - 1} linha(s) com a mesma divergência)`,
+        hint: lineErrors[0].hint ?? null,
+        retryable: false,
+        step: "MAP",
+        details: { linhas: lineErrors },
+      });
+    }
+    for (const warning of lineIssues) log.warn(warning.message);
+    const mappingPayload = lines.payload;
+
     const contextFor = await mappingContexts.build({ id: route.account.id, name: route.account.name }, { codigoPedido: String(order.visionOrderCode) });
-    const customerMapping = this.engine.map("CUSTOMER", payload, contextFor("CUSTOMER"));
+    const customerMapping = this.engine.map("CUSTOMER", mappingPayload, contextFor("CUSTOMER"));
     const docMappings = new Map<DocumentKind, MappingResult>();
-    for (const doc of pending) docMappings.set(doc.kind, this.engine.map(doc.kind as DocumentType, payload, contextFor(doc.kind as DocumentType)));
+    for (const doc of pending) docMappings.set(doc.kind, this.engine.map(doc.kind as DocumentType, mappingPayload, contextFor(doc.kind as DocumentType)));
     const issues = [customerMapping, ...docMappings.values()].flatMap((m) => m.issues);
+    for (const [kind, mapping] of docMappings) issues.push(...installmentIssues(kind as DocumentType, mapping, snapshot, mappingPayload, settings.documents.sendVisionInstallments));
     this.assertMapping(issues, log);
     for (const warning of issues.filter((i) => i.severity === "warning")) log.warn(warning.message, { campo: warning.targetField });
 
@@ -147,7 +167,7 @@ export class ProcessOrder {
     });
 
     // 6. Inclusão idempotente de cada documento
-    const totals = this.lineTotals(payload);
+    const totals = this.lineTotals(mappingPayload);
     for (const doc of pending) {
       const step: IntegrationStep = doc.kind === "SALES_ORDER" ? "SEND_SALES_ORDER" : "SEND_SERVICE_ORDER";
       log.step(step);
@@ -156,7 +176,7 @@ export class ProcessOrder {
         customerId,
         integrationCode: doc.integrationCode,
         visionOrderCode: order.visionOrderCode,
-        visionOrder: payload,
+        visionOrder: mappingPayload,
         parcels: splitParcels(snapshot.parcels, kinds.length > 1 ? share : 1),
         sendInstallments: settings.documents.sendVisionInstallments,
         timeZone,

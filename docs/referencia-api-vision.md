@@ -25,6 +25,19 @@ A integração envia o token como `Authorization: Bearer <token>`, reutiliza-o p
 receber `401`, faz login de novo e repete a chamada uma vez. Outros formatos (`token`, `access_token`,
 `autenticacao`…) continuam aceitos caso a API mude.
 
+## Formato das respostas (confirmado em 21/10/2026)
+
+* **Chaves em PascalCase** (`CodigoPedido`, `Cliente.CPFCNPJ`, `Itens`, `Servicos`, `Parcelas`). O
+  adaptador converte para camelCase com a regra do Json.NET (`CPFCNPJ` → `cpfcnpj`,
+  `XBloquearFaturamento` → `xBloquearFaturamento`). Dentro da integração e na tela de mapeamento os
+  caminhos são sempre camelCase (`cliente.cpfcnpj`, `servicos[].codigoMaterial`).
+* **Datas sem fuso** (`2026-10-01T08:47:58.453`). O adaptador acrescenta o deslocamento de
+  `APP_TIMEZONE` (`…-03:00`), então a hora não muda conforme o fuso do servidor.
+* Os corpos enviados nos retornos continuam em camelCase. Isso funciona porque a ControllerAPI
+  (ASP.NET) lê o JSON sem diferenciar maiúsculas e minúsculas.
+
+Exemplos completos (com os dados do cliente trocados): `src/server/infrastructure/vision/__fixtures__/`.
+
 ## Consultas
 
 ### `GET /api/pedido/busca/atualizados`
@@ -37,27 +50,46 @@ receber `401`, faz login de novo e repete a chamada uma vez. Outros formatos (`t
 | `pagina` | inteiro | 1, 2, 3… |
 | `linhas` | inteiro | tamanho da página (padrão 50, ajustável em Configurações › Coleta) |
 
-Resposta aceita: array ou envelope (`pedidos`, `dados`, `data`, `items`, `resultado`). De cada item a
-integração lê, com tolerância a variações de nome: `codigoPedido`/`codigo`, `dataAtualizacao`,
-`codigoEmpresa`, `codigoStatus`, `descricaoStatus`, nome do cliente.
+Resposta:
+
+```json
+{
+  "Pagina": 1, "Linhas": 50, "TotalRegistros": 146, "TotalPaginas": 3,
+  "Pedidos": [
+    { "CodigoPedido": 14062, "CodigoEmpresa": 1, "DataCadastro": "2026-10-01T08:46:59.87",
+      "DataAtualizacao": "2026-10-01T08:47:58.453", "CodigoStatus": 2, "DescricaoStatus": "CONCLUÍDO / FATURADO" }
+  ]
+}
+```
+
+A coleta pagina até `TotalPaginas`. Não depende de a última página vir incompleta, então funciona mesmo
+que o Vision ignore o `linhas` pedido. O resumo não traz o cliente: o nome aparece quando o pedido
+completo é lido.
 
 ### `GET /api/pedido/busca/{codigoPedido}`
 
-Pedido completo (definição `Pedido`). Grupos principais:
+Pedido completo. Campos observados (pedido 14062, só serviço):
 
-| Grupo | Campos usados por padrão |
+| Grupo | Campos |
 |---|---|
-| Cabeçalho | `codigo`, `codigoEmpresa`, `razaoSocialEmpresa`, `codigoCliente`, `dataCadastro`, `dataAtualizacao`, `codigoStatus`, `observacao`, `codigoVendedor`, `valorFrete`, `valorDesconto`, `codigoFormaPagamento` |
-| `cliente` (`ClienteDomain`) | `razaoSocial`, `nomeFantasia`, `cpfcnpj`, `inscricaoEstadual`, `inscricaoMunicipal`, endereço completo, `cep`, `telefone`, `email`, `entidadeClassificacao.xContribuinte` |
-| `itens[]` (`PedidoItem`) | `seq`, `codigoMaterial`, `descricaoMaterial`, `quantidade`, `valorUnitario`, `valorDesconto`, `unidade` |
-| `servicos[]` (`PedidoServico`) | `seq`, `codigoServico`, `descricaoServico`, `quantidade`, `valorUnitario`, `valorDesconto` |
-| `parcelas[]` (`PedidoParcela`) | `numeroParcela`, `dataVencimento`, `valor`, `codigoParcela` |
+| Cabeçalho | `Codigo`, `CodigoEmpresa`, `RazaoSocialEmpresa`, `CodigoCliente`, `CodigoUsuarioCadastro`, `DataCadastro`, `DataAtualizacao`, `CodigoStatus`, `DescricaoStatus`, `CodigoOrigemRegistro`, `Observacao`, `ObservacaoFrete`, `CodigoTipoOperacao`, `NumeroTipoOperacao`, `CodigoCarteira`, `CodigoCanalVenda`, `CodigoFormaPagamento`, `CodigoTabelaFrete`, `ValorFrete`, `ValorDesconto`, `ValorOutras`, `CodigoVendedor`, `DescricaoVendedor`, `CodigoIdDestinatario`, `CodigoIdOperacaoPresencial`, `CodigoExecucaoEntreEmpresas` |
+| `Cliente` | `Codigo`, `RazaoSocial`, `NomeFantasia`, `CPFCNPJ` (formatado), `InscricaoEstadual`, `InscricaoMunicipal`, `IE`, `IM`, `RG`, `Endereco`, `Numero`, `Complemento`, `Letra`, `Bairro`, `Cidade`, `UF`, `CEP`, `CodigoCidade` (código interno do Vision, não IBGE), `Telefone` (`31-3000-0000`, com hífens), `Celular`, `Fax`, `Email`, `CodigoFormaPagamento`/`DescricaoFormaPagamento`, `CodigoCarteira`/`DescricaoCarteira`, `CodigoNivel`/`DescricaoNivel`, `CodigoRegiao`, `XBloquearFaturamento`, `EntidadeClassificacao.{XContribuinte, XContribuinteFinal, XCupomFiscal}` |
+| `Servicos[]` | `Codigo` (id da linha), `CodigoItem` (nº da linha), `Seq` (veio 0), `CodigoServico` (veio **0**), `CodigoMaterial` (**código do serviço**), `DescricaoMaterialVenda`, `Quantidade`, `ValorUnitario`, `ValorTotal`, `PorcentagemDesconto`, `SiglaUnidadeVenda` (`KG`), `CodigoCME`/`DescricaoCME` |
+| `Itens[]` | mesma estrutura de linha (o exemplo veio vazio) |
+| `Parcelas[]` | veio vazio no pedido com forma de pagamento `SEM FINANCEIRO` |
 
-Todos os campos (inclusive os que o Vision venha a acrescentar) aparecem na tela de mapeamento.
+Todos os campos, inclusive os que o Vision vier a acrescentar, aparecem na tela de mapeamento.
 
-**CNPJ da empresa:** a definição `Pedido` não tem um campo de CNPJ da empresa faturadora. A integração
-procura, nesta ordem: o caminho configurado em *Configurações › Roteamento* (padrão `cnpjEmpresa`),
-`empresa.cnpj`, `cnpj`, e a tabela de-para *Empresa Vision → CNPJ* pelo `codigoEmpresa`.
+### O que o formato real mudou na integração
+
+| Observação | Tratamento |
+|---|---|
+| O pedido **não traz o CNPJ da empresa**, só `CodigoEmpresa` e `RazaoSocialEmpresa` | Roteamento pela tabela *Empresa Vision → CNPJ*: em cada conta Omie, cadastre o código da empresa que ela atende (ex.: `1` na conta da Ecolife Soluções Ambientais). Os caminhos de CNPJ em Configurações continuam valendo se o Vision passar a mandar o campo. |
+| Serviço vem com `CodigoServico: 0`; o código está em `CodigoMaterial` | O de-para *Serviços* usa `codigoMaterial` por padrão. |
+| `Seq: 0` nas linhas | O código de integração do item usa a posição da linha quando `Seq` é 0. |
+| `271 × 5,18 = 1.403,78`, mas `ValorTotal = 1.408,70` | Checagem antes do envio. Padrão: bloqueia com a diferença explicada. Em Configurações dá para escolher recalcular a quantidade (271,9498) ou o valor unitário. O Swagger declara `Quantidade` como inteiro, então a hipótese mais provável é que a quantidade em kg esteja sendo truncada (271,95 × 5,18 = 1.408,70). |
+| `SEM FINANCEIRO` sem parcelas | A condição 999 (parcelas informadas) exige parcelas: o pedido para com a pendência "Condição de pagamento" até ser mapeada uma condição do Omie para esses casos. Sem parcelas no Vision não há retorno de baixas, e o acompanhamento encerra quando a nota é informada. |
+| `Complemento: "N/A"` | Vai como está para o Omie. Se não quiser, crie uma regra para o campo Complemento. |
 
 ## Retornos (Omie → Vision)
 
@@ -81,9 +113,15 @@ A parcela do Vision é pareada pelo número da parcela; sem número, pela data d
 
 ## Pontos a confirmar com o suporte do Vision
 
-1. ~~Formato da resposta do login~~ (confirmado: JWT em string JSON) e formato de `busca/atualizados`.
-2. Campo com o CNPJ da empresa faturadora no pedido completo.
-3. Valores de `codigoIntegracao`, `tipoNotaFiscal` (0/1), `tipo`, `especie`, `modelo` e
+1. ✅ Formato do login e de `busca/atualizados` — confirmados (veja acima).
+2. ✅ CNPJ da empresa no pedido — não existe; roteamento pelo código da empresa. Se o Vision puder
+   incluir o CNPJ, o roteamento passa a usá-lo sem mudança de código.
+3. **`Quantidade` inteira?** No pedido 14062, `Quantidade × ValorUnitario` não fecha o `ValorTotal`.
+   Pedir que `Quantidade` (e `ValorUnitario`) venham com as casas decimais reais.
+4. **Situações elegíveis:** o exemplo veio com `CodigoStatus 2 — CONCLUÍDO / FATURADO`. Confirmar quais
+   situações significam "pronto para faturar no Omie" e se pedidos já faturados por outro caminho devem
+   ficar de fora.
+5. Valores de `codigoIntegracao`, `tipoNotaFiscal` (0/1), `tipo`, `especie`, `modelo` e
    `origemParcela` (0/1/2).
-4. Se `parcela/baixa` devolve um `codigoBaixa` para uso no cancelamento.
-5. Quais `codigoStatus` indicam pedido pronto para faturar.
+6. Se `parcela/baixa` devolve um `codigoBaixa` para uso no cancelamento.
+7. Se o parâmetro `linhas` é respeitado (o exemplo devolveu `Linhas: 50`).

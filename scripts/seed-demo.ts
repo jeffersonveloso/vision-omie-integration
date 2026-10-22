@@ -44,6 +44,11 @@ async function main() {
   const { maps } = await call<{ maps: Array<{ id: string; key: string }> }>("GET", "/api/mappings/value-maps");
   const produtos = maps.find((m) => m.key === "produtos")!;
   const servicos = maps.find((m) => m.key === "servicos")!;
+  // O pedido do Vision traz só o código da empresa: cada conta Omie recebe a(s) empresa(s) que atende.
+  const empresas = maps.find((m) => m.key === "empresa-cnpj")!;
+  for (const [index, c] of [COMPANIES.matriz, COMPANIES.filial].entries()) {
+    await call("POST", `/api/mappings/value-maps/${empresas.id}/import`, { omieAccountId: ids[index], text: `${c.code};${c.cnpj};${c.name}` });
+  }
   for (const id of ids) {
     await call("POST", `/api/mappings/value-maps/${produtos.id}/import`, { omieAccountId: id, text: "123;4422421;PRD-123 — Coletor de resíduos 20L\n456;4422456;PRD-456 — Kit descarte perfurocortante" });
     await call("POST", `/api/mappings/value-maps/${servicos.id}/import`, { omieAccountId: id, text: "77;8800077;SRV-77 — Coleta de resíduos de saúde\n78;8800078;SRV-78 — Tratamento e destinação final" });
