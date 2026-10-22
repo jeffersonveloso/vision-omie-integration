@@ -14,6 +14,14 @@ export interface VisionSimulator {
 
 const BASE = "/ControllerAPI";
 
+/** JWT com as mesmas claims do Vision (unique_name, role, nbf, exp, iat; validade de 120 min). Assinatura fictícia. */
+function simulatedJwt(usuario: string): string {
+  const b64 = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
+  const iat = Math.floor(Date.now() / 1000);
+  const nonce = Math.random().toString(36).slice(2);
+  return `${b64({ alg: "HS256", typ: "JWT" })}.${b64({ unique_name: usuario, role: "Usuario", nbf: iat, exp: iat + 7200, iat })}.sim-${nonce}`;
+}
+
 /**
  * Simulador da ControllerAPI do Vision: login com Bearer token, consulta incremental
  * paginada, pedido completo e os 5 endpoints de retorno.
@@ -31,9 +39,10 @@ export async function startVisionSimulator(port = 0, credentials = { usuario: "O
     if (req.method === "POST" && path === "/api/login") {
       const body = (await readJsonBody(req)) as Record<string, string> | null;
       if (body?.usuario !== credentials.usuario || body?.senha !== credentials.senha) return send(res, 401, { Message: "Usuário ou senha inválidos." });
-      const token = `sim-${Math.random().toString(36).slice(2)}`;
+      // Mesmo formato da ControllerAPI real: o corpo é o JWT como string JSON ("eyJ...").
+      const token = simulatedJwt(body.usuario);
       tokens.add(token);
-      return send(res, 200, { codigo: 1, usuario: body.usuario, nome: "Integração Omie", autenticacao: token });
+      return send(res, 200, token);
     }
 
     const auth = req.headers.authorization?.replace(/^Bearer\s+/i, "");

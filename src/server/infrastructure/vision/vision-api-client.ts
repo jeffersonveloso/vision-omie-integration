@@ -19,7 +19,9 @@ export interface VisionClientConfig {
   timeoutMs: number;
 }
 
-const TOKEN_TTL_MS = 115 * 60_000; // token vale 120 min; renova com folga
+/** Usado só quando o token não traz a validade (o JWT do Vision traz: 120 min). */
+const TOKEN_FALLBACK_TTL_MS = 115 * 60_000;
+const TOKEN_RENEW_MARGIN_MS = 5 * 60_000;
 const ENVELOPE_KEYS = ["pedidos", "Pedidos", "dados", "Dados", "data", "itens", "items", "registros", "lista", "resultado", "result", "value", "Value"];
 
 function extractArray(body: unknown): Array<Record<string, unknown>> {
@@ -46,7 +48,11 @@ function extractOrder(body: unknown): VisionOrderPayload | null {
   return null;
 }
 
-function extractToken(body: unknown): string | null {
+/**
+ * O login da ControllerAPI devolve o JWT como string JSON: "eyJhbGciOiJIUzI1NiIs...".
+ * Os demais formatos ficam aceitos caso a API mude.
+ */
+export function extractToken(body: unknown): string | null {
   if (typeof body === "string" && body.trim()) return body.trim().replace(/^"|"$/g, "").replace(/^Bearer\s+/i, "");
   if (body && typeof body === "object") {
     const obj = body as Record<string, unknown>;
@@ -56,6 +62,26 @@ function extractToken(body: unknown): string | null {
     for (const key of ["dados", "data", "usuario", "Usuario", "result"]) if (obj[key]) return extractToken(obj[key]);
   }
   return null;
+}
+
+/**
+ * Até quando reutilizar o token. Usa a duração do JWT (exp − iat) contada a partir do relógio local,
+ * então diferença de horário entre os servidores não faz o token "vencer" antes nem depois da hora.
+ */
+export function tokenReuseUntil(token: string, now: number): number {
+  const payload = token.split(".")[1];
+  if (payload) {
+    try {
+      const claims = JSON.parse(Buffer.from(payload, "base64url").toString("utf8")) as { exp?: unknown; iat?: unknown };
+      if (typeof claims.exp === "number") {
+        const lifetimeMs = typeof claims.iat === "number" ? (claims.exp - claims.iat) * 1000 : claims.exp * 1000 - now;
+        if (lifetimeMs > 0) return now + Math.max(lifetimeMs - TOKEN_RENEW_MARGIN_MS, lifetimeMs / 2);
+      }
+    } catch {
+      // não é um JWT legível: usa a validade padrão
+    }
+  }
+  return now + TOKEN_FALLBACK_TTL_MS;
 }
 
 function visionMessage(body: unknown): string | null {
@@ -70,7 +96,8 @@ function visionMessage(body: unknown): string | null {
 
 /**
  * Adaptador da ControllerAPI do Vision (Swagger v1).
- * Autenticação: POST /api/login → Bearer token (120 min), renovado automaticamente.
+ * Autenticação: POST /api/login → JWT (string JSON, 120 min), renovado 5 min antes de vencer
+ * e refeito uma vez se a API responder 401.
  */
 export class VisionApiClient implements VisionGateway {
   private token: { value: string; expiresAt: number } | null = null;
@@ -120,7 +147,7 @@ export class VisionApiClient implements VisionGateway {
         details: { httpStatus: response.status, durationMs: Date.now() - started },
       });
     }
-    this.token = { value: token, expiresAt: Date.now() + TOKEN_TTL_MS };
+    this.token = { value: token, expiresAt: tokenReuseUntil(token, Date.now()) };
     return token;
   }
 

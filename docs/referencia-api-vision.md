@@ -9,11 +9,21 @@ Implementação: `src/server/infrastructure/vision/vision-api-client.ts` · tipo
 
 ## Autenticação
 
-`POST /api/login` — corpo `{ "usuario": "...", "senha": "..." }` → Bearer token válido por 120 min.
+`POST /api/login` — corpo `{ "usuario": "...", "senha": "..." }`.
 
-A integração guarda o token por 115 min, renova antes de vencer e, se receber `401`, faz login de novo e
-repete a chamada uma vez. O token é lido de `token`, `access_token`, `accessToken`, `autenticacao`,
-`data.token` ou do corpo em texto puro (o Swagger descreve a resposta só como `object` — **validar**).
+**Resposta (confirmada em 21/10/2026):** HTTP 200 com o JWT como string JSON, sem envelope:
+
+```json
+"eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1bmlxdWVfbmFtZSI6Ik9NSUUiLC..."
+```
+
+Claims do token: `unique_name` (usuário), `role` (`Usuario`), `nbf`, `iat` e `exp` — validade de
+120 min (`exp − iat = 7200 s`). Assinatura HS256.
+
+A integração envia o token como `Authorization: Bearer <token>`, reutiliza-o pela duração do JWT menos
+5 min (contada no relógio local, então diferença de horário entre os servidores não interfere) e, se
+receber `401`, faz login de novo e repete a chamada uma vez. Outros formatos (`token`, `access_token`,
+`autenticacao`…) continuam aceitos caso a API mude.
 
 ## Consultas
 
@@ -71,7 +81,7 @@ A parcela do Vision é pareada pelo número da parcela; sem número, pela data d
 
 ## Pontos a confirmar com o suporte do Vision
 
-1. Formato da resposta do login e de `busca/atualizados`.
+1. ~~Formato da resposta do login~~ (confirmado: JWT em string JSON) e formato de `busca/atualizados`.
 2. Campo com o CNPJ da empresa faturadora no pedido completo.
 3. Valores de `codigoIntegracao`, `tipoNotaFiscal` (0/1), `tipo`, `especie`, `modelo` e
    `origemParcela` (0/1/2).

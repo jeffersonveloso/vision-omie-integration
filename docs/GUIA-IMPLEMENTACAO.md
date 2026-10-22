@@ -222,8 +222,8 @@ A integração:
 O Swagger do Vision descreve as respostas de `busca/atualizados`, `busca/{codigo}` e `login` apenas como
 `object`. O código foi escrito tolerante, mas confirme com dados reais:
 
-1. **Resposta do login** — o token é lido de `token`, `access_token`, `autenticacao` ou texto puro.
-   (`vision-api-client.ts › extractToken`)
+1. ✅ **Resposta do login** — confirmada em 21/10/2026: JWT como string JSON, validade de 120 min na
+   claim `exp`. O cliente renova pelo próprio token. (`vision-api-client.ts › extractToken`, `tokenReuseUntil`)
 2. **Lista de atualizados** — aceita array puro ou envelope (`pedidos`, `dados`, `data`...); cada item
    precisa de `codigoPedido`/`codigo` e `dataAtualizacao`. (`vision-order.ts › parseVisionOrderSummary`)
 3. **CNPJ da empresa no pedido** — a definição `Pedido` traz `codigoEmpresa` e `razaoSocialEmpresa`, mas
