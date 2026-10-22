@@ -1,0 +1,146 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Tokens: fundo mineral frio, tinta verde-pinho, cores de status próprias.
+ * Status: done (musgo), sent (cobalto), queued (ardósia), error (carmim), rejected (ocre), muted (grafite).
+ */
+:root {
+  --background: #f2f5f3;
+  --surface: #ffffff;
+  --surface-sunken: #e9eeeb;
+  --foreground: #13302b;
+  --muted-foreground: #5e6e69;
+  --border: #d5ddd9;
+  --border-strong: #b9c6c0;
+  --primary: #0e5a52;
+  --primary-hover: #0b4a43;
+  --primary-foreground: #f2f8f6;
+  --ring: #2f8f84;
+  --nav: #13302b;
+  --nav-foreground: #dce8e3;
+  --nav-muted: #8fa9a1;
+  --nav-active: #224a42;
+
+  --status-done: #2f7d4f;
+  --status-done-soft: #e3f1e7;
+  --status-sent: #2563a8;
+  --status-sent-soft: #e4edf8;
+  --status-queued: #6f7d78;
+  --status-queued-soft: #eceff0;
+  --status-error: #b3261e;
+  --status-error-soft: #fbe9e7;
+  --status-rejected: #a86108;
+  --status-rejected-soft: #fbf0df;
+  --status-muted: #7c838a;
+  --status-muted-soft: #eef0f2;
+
+  --radius-panel: 10px;
+  --radius-control: 6px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0e1816;
+    --surface: #14211e;
+    --surface-sunken: #0b1311;
+    --foreground: #e2ebe7;
+    --muted-foreground: #93a39e;
+    --border: #283833;
+    --border-strong: #3a4d47;
+    --primary: #4fb3a6;
+    --primary-hover: #68c4b8;
+    --primary-foreground: #0b1714;
+    --ring: #4fb3a6;
+    --nav: #0a1311;
+    --nav-foreground: #d4e2dc;
+    --nav-muted: #7d958d;
+    --nav-active: #18302b;
+    --status-done: #5cb37c;
+    --status-done-soft: #15291e;
+    --status-sent: #6ea5e6;
+    --status-sent-soft: #142236;
+    --status-queued: #94a29d;
+    --status-queued-soft: #1b2522;
+    --status-error: #f0766c;
+    --status-error-soft: #33171a;
+    --status-rejected: #e0a24c;
+    --status-rejected-soft: #33240f;
+    --status-muted: #9aa1a8;
+    --status-muted-soft: #1d2226;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-sunken: var(--surface-sunken);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-ring: var(--ring);
+  --color-nav: var(--nav);
+  --color-nav-foreground: var(--nav-foreground);
+  --color-nav-muted: var(--nav-muted);
+  --color-nav-active: var(--nav-active);
+  --color-done: var(--status-done);
+  --color-done-soft: var(--status-done-soft);
+  --color-sent: var(--status-sent);
+  --color-sent-soft: var(--status-sent-soft);
+  --color-queued: var(--status-queued);
+  --color-queued-soft: var(--status-queued-soft);
+  --color-error: var(--status-error);
+  --color-error-soft: var(--status-error-soft);
+  --color-rejected: var(--status-rejected);
+  --color-rejected-soft: var(--status-rejected-soft);
+  --color-muted: var(--status-muted);
+  --color-muted-soft: var(--status-muted-soft);
+
+  --radius-panel: var(--radius-panel);
+  --radius-control: var(--radius-control);
+
+  --font-sans: "Atkinson Hyperlegible Next Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Atkinson Hyperlegible Mono Variable", ui-monospace, "SFMono-Regular", monospace;
+
+  --text-2xs: 0.75rem;
+  --text-2xs--line-height: 1rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    font-size: 0.875rem;
+    line-height: 1.5;
+    font-feature-settings: "tnum" 1;
+  }
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 22%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
