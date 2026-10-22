@@ -243,7 +243,7 @@ flowchart LR
   tentativas, erro, conteúdo recebido) e o botão **Reprocessar falhas** (fica na auditoria).
 * **Sem `REDIS_URL`:** fila em memória com o mesmo comportamento, só para desenvolvimento (não sobrevive a
   reinício nem é dividida entre instâncias; os eventos continuam no banco e a varredura os recupera).
-* **Redis em produção:** com persistência (AOF) e `maxmemory-policy noeviction` — o `docker-compose.yml`
+* **Redis em produção:** com persistência (AOF) e `maxmemory-policy noeviction` — o `docker/compose.yaml`
   já sobe assim. No NestJS a mesma fila vira um `@Processor` do `@nestjs/bullmq`.
 
 ### Logs, auditoria e alertas
@@ -358,6 +358,9 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 * **Janela da primeira coleta:** 7 dias (`SYNC_INITIAL_LOOKBACK_DAYS`, editável em *Configurações ›
   Coleta*). Depois da primeira execução a coleta continua de onde parou; a mesma tela mostra até onde
   chegou e tem **Recomeçar a coleta**, que volta a buscar os últimos N dias sem duplicar pedidos.
+* **Etapa de testes (homologação):** `npm run deps:up` sobe o PostgreSQL 17 e o Redis 7.4 de
+  `docker/compose.yaml`; aponte `DATABASE_URL` e `REDIS_URL` para eles (endereços no README). O CI usa o
+  mesmo arquivo, então ele é validado a cada push.
 * **Produção:** `DATABASE_URL` (PostgreSQL 14+), `APP_ENCRYPTION_KEY`, credenciais do Vision.
   `npm run build && npm start`. Migrações aplicadas automaticamente na inicialização.
 * **Mais de uma instância:** a trava em banco (`job_locks`) impede rotinas simultâneas, e cada pedido é

@@ -16,7 +16,9 @@
     "demo:seed": "tsx scripts/seed-demo.ts",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
-    "worker": "tsx --conditions=react-server scripts/worker.ts"
+    "worker": "tsx --conditions=react-server scripts/worker.ts",
+    "deps:up": "docker compose -f docker/compose.yaml up -d --wait",
+    "deps:down": "docker compose -f docker/compose.yaml down"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.11",

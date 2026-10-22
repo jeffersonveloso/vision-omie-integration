@@ -48,41 +48,33 @@ jobs:
           retention-days: 14
 
   postgres:
-    name: Testes com PostgreSQL
+    name: Testes com PostgreSQL e Redis (docker/compose.yaml)
     # Fixo em 24.04: o ubuntu-latest está migrando para o 26, ainda não suportado pelo Playwright 1.56.
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    services:
-      redis:
-        image: redis:7-alpine
-        ports:
-          - 6379:6379
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 5s
-          --health-retries 10
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-retries 10
     env:
       # Cada arquivo de teste cria e apaga o próprio banco (tests/support/test-database.ts).
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       TEST_REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
+      # As mesmas dependências da etapa de testes: se o compose quebrar, o CI quebra junto.
+      - name: Sobe PostgreSQL e Redis
+        run: docker compose -f docker/compose.yaml up -d --wait
+        timeout-minutes: 5
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Migrações no banco do compose
+        run: npm run db:migrate
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/vision_omie
       - run: npx vitest run tests
+      - name: Logs das dependências
+        if: failure()
+        run: docker compose -f docker/compose.yaml logs --no-color
 
   e2e:
     name: Build e telas (Playwright)

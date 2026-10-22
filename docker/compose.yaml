@@ -1,0 +1,56 @@
+# Dependências da integração para a etapa de testes (homologação) e para os testes automatizados.
+#
+#   npm run deps:up      # sobe e espera os dois serviços ficarem saudáveis
+#   npm run deps:down    # para (os dados ficam nos volumes)
+#   docker compose -f docker/compose.yaml down -v   # para e apaga os dados
+#
+# Na aplicação (.env.local):
+#   DATABASE_URL=postgres://postgres:postgres@localhost:5432/vision_omie
+#   REDIS_URL=redis://localhost:6379
+#
+# Usuário, senha, banco e portas podem mudar em docker/.env (modelo em docker/.env.example).
+# As portas só abrem em 127.0.0.1: a aplicação roda na mesma máquina.
+
+# Mesmo nome de projeto do antigo docker-compose.yml da raiz, para reaproveitar os volumes já criados.
+name: vision-omie-integration
+
+services:
+  # Banco da aplicação: pedidos, mapeamentos, contas, logs, auditoria e eventos de webhook.
+  # Os testes automatizados (TEST_DATABASE_URL) criam e apagam bancos próprios neste mesmo servidor.
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-vision_omie}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 10s
+
+  # Fila dos webhooks do Omie (BullMQ). AOF ligado para os jobs sobreviverem a reinício, e
+  # noeviction porque o BullMQ não funciona direito se o Redis descartar chaves por falta de memória.
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec", "--maxmemory-policy", "noeviction"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep -q PONG"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pgdata:
+  redisdata:
