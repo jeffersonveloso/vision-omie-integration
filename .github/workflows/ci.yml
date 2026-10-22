@@ -15,7 +15,8 @@ permissions:
 jobs:
   test:
     name: Tipos, testes e cobertura
-    runs-on: ubuntu-latest
+    # Fixo em 24.04: o ubuntu-latest está migrando para o 26, ainda não suportado pelo Playwright 1.56.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       redis:
@@ -48,7 +49,8 @@ jobs:
 
   postgres:
     name: Testes com PostgreSQL
-    runs-on: ubuntu-latest
+    # Fixo em 24.04: o ubuntu-latest está migrando para o 26, ainda não suportado pelo Playwright 1.56.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     services:
       redis:
@@ -84,7 +86,8 @@ jobs:
 
   e2e:
     name: Build e telas (Playwright)
-    runs-on: ubuntu-latest
+    # Fixo em 24.04: o ubuntu-latest está migrando para o 26, ainda não suportado pelo Playwright 1.56.
+    runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
@@ -94,6 +97,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium
+        timeout-minutes: 8
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
