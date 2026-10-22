@@ -3,7 +3,7 @@ import type { Database } from "@/server/infrastructure/database/client";
 import { integrationLogs, integrationOrders, omieAccounts, omieDocuments, syncRuns } from "@/server/infrastructure/database/schema";
 import { toIsoDate } from "@/server/shared/domain/dates";
 import { collectLeafPaths } from "@/server/modules/mappings/domain/object-path";
-import type { DashboardStats, LogView, OrderDetail, OrderListFilter, OrderListItem, OrderQueryService } from "../application/queries";
+import type { DashboardStats, LogView, OrderDetail, OrderListFilter, OrderListItem, OrderQueryService, PaymentFormSeen } from "../application/queries";
 import type { ErrorCategory, IntegrationStep, StoredError } from "../domain/integration-error";
 import { ORDER_STATUSES, type OrderStatus } from "../domain/integration-order";
 import type { DocumentKind, DocumentStatus, FinancialTitle, FiscalInfo, FiscalReturn } from "../domain/omie-document";
@@ -275,5 +275,22 @@ export class DrizzleOrderQueryService implements OrderQueryService {
       }
     }
     return [...counts.entries()].map(([path, v]) => ({ path, ...v })).sort((a, b) => a.path.localeCompare(b.path));
+  }
+
+  async paymentFormsSeen(): Promise<PaymentFormSeen[]> {
+    const payload = integrationOrders.visionPayload;
+    const code = sql`(${payload}->>'codigoFormaPagamento')`;
+    const rows = await this.db
+      .select({
+        code: sql<number>`${code}::int`,
+        description: sql<string | null>`max(case when ${payload}->'cliente'->>'codigoFormaPagamento' = ${code} then ${payload}->'cliente'->>'descricaoFormaPagamento' end)`,
+        orders: sql<number>`count(*)::int`,
+        withoutParcels: sql<number>`sum(case when jsonb_typeof(${payload}->'parcelas') <> 'array' or jsonb_array_length(${payload}->'parcelas') = 0 then 1 else 0 end)::int`,
+      })
+      .from(integrationOrders)
+      .where(sql`${payload} is not null and ${code} ~ '^-?[0-9]+$'`)
+      .groupBy(code)
+      .orderBy(sql`${code}::int`);
+    return rows.map((r) => ({ code: Number(r.code), description: r.description ?? null, orders: Number(r.orders), withoutParcels: Number(r.withoutParcels) }));
   }
 }

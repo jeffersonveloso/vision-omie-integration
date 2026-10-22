@@ -178,8 +178,19 @@ Objetivo: nenhum campo Vision → Omie fixo no código. Tudo é configurável na
   sempre em camelCase (o adaptador converte o PascalCase da API: `Cliente.CPFCNPJ` → `cliente.cpfcnpj`).
 * **Serviços:** o de-para padrão usa `codigoMaterial`, porque no Vision o `CodigoServico` das linhas
   de serviço chega 0.
+* **Condição de pagamento** (`cabecalho.codigo_parcela` / `Cabecalho.cCodParc`): definida em
+  *Configurações › Condições de pagamento*, nesta ordem:
+  1. pedido com parcelas no Vision → 999 (parcelas informadas), com vencimentos e valores do Vision;
+  2. sem parcelas → a condição associada à forma de pagamento do pedido (`codigoFormaPagamento`; a tela
+     sugere as formas encontradas nos pedidos já lidos, ex.: `2 — SEM FINANCEIRO`);
+  3. forma não configurada → a condição padrão para pedidos sem parcelas;
+  4. nada configurado → o pedido para com a pendência "Condição de pagamento".
+
+  A lista de condições é carregada do Omie. Uma regra em Mapeamentos para o campo substitui a
+  configuração (por conta ou para todas), mas 999 continua exigindo parcelas. Pedido sem parcelas no
+  Vision não tem retorno de baixas.
 * **Checagens além do mapeamento** (no envio e na simulação): linha cujo `quantidade × valorUnitario`
-  não fecha o `valorTotal` e condição de pagamento 999 em pedido sem parcelas.
+  não fecha o `valorTotal` e condição de pagamento ausente ou 999 em pedido sem parcelas.
 * **Simular mapeamento** (no pedido): mostra o payload final, a origem de cada campo e as pendências,
   sem chamar o Omie.
 
@@ -236,8 +247,9 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 4. **Quantidade × valor unitário** — no pedido 14062 o total não fecha (271 × 5,18 = 1.403,78; total
    1.408,70). Pedir ao Vision as casas decimais reais de `Quantidade`. Enquanto isso, a integração
    bloqueia essas linhas (ou recalcula, conforme *Configurações › Roteamento e documentos*).
-5. **Pedidos SEM FINANCEIRO** — vêm sem parcelas. Definir a condição de pagamento do Omie para eles
-   (regra fixa ou de-para por `codigoFormaPagamento`) e se devem gerar título no Omie.
+5. **Pedidos SEM FINANCEIRO** — vêm sem parcelas. Associe a forma de pagamento a uma condição do Omie em
+   *Configurações › Condições de pagamento* (ou defina a condição padrão). Confirme se o Omie deve gerar
+   título a receber para eles: a integração não devolve baixas de pedido sem parcelas no Vision.
 6. **Convenções do retorno** — `codigoIntegracao` (enum `[1]`), `tipoNotaFiscal` (enum `[0,1]`), `tipo`,
    `especie`, `modelo` e `origemParcela` (enum `[0,1,2]`) estão em *Configurações › Convenções do
    retorno* e precisam da confirmação do suporte do Vision.
@@ -283,6 +295,9 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 
 * **Desenvolvimento:** `npm run simulators` + `.env.local` apontando para os simuladores + `npm run dev`
   + `npm run demo:seed`. Banco PGlite em `./.data` (sem instalar PostgreSQL).
+* **Janela da primeira coleta:** 7 dias (`SYNC_INITIAL_LOOKBACK_DAYS`, editável em *Configurações ›
+  Coleta*). Depois da primeira execução a coleta continua de onde parou; a mesma tela mostra até onde
+  chegou e tem **Recomeçar a coleta**, que volta a buscar os últimos N dias sem duplicar pedidos.
 * **Produção:** `DATABASE_URL` (PostgreSQL 14+), `APP_ENCRYPTION_KEY`, credenciais do Vision.
   `npm run build && npm start`. Migrações aplicadas automaticamente na inicialização.
 * **Mais de uma instância:** a trava em banco (`job_locks`) impede rotinas simultâneas, e cada pedido é

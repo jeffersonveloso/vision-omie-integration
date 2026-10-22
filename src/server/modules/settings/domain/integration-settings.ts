@@ -4,6 +4,22 @@ import type { LineTotalPolicy } from "@/server/modules/integration/domain/line-t
  * Parâmetros operacionais da integração, editáveis pela tela de Configurações.
  * Credenciais (Vision) ficam em variáveis de ambiente, nunca aqui.
  */
+export interface PaymentFormTerm {
+  /** codigoFormaPagamento do pedido no Vision. */
+  visionCode: number;
+  visionDescription: string;
+  /** Código da condição na tabela de parcelas do Omie (ex.: "000" à vista). */
+  omieCode: string;
+  omieDescription: string;
+}
+
+export interface PaymentTermsSettings {
+  byPaymentForm: PaymentFormTerm[];
+  /** Para pedidos sem parcelas cuja forma de pagamento não está na lista. Vazio = o pedido para com pendência. */
+  defaultCondition: string | null;
+  defaultConditionDescription: string;
+}
+
 export interface IntegrationSettings {
   sync: {
     /** Liga/desliga a coleta automática de pedidos do Vision. */
@@ -56,6 +72,12 @@ export interface IntegrationSettings {
     /** O que fazer quando quantidade × valor unitário não fecha o valor total da linha no Vision. */
     lineTotalMismatch: LineTotalPolicy;
   };
+  /**
+   * Condição de pagamento do Omie (cabecalho.codigo_parcela / Cabecalho.cCodParc).
+   * Ordem: parcelas do Vision (999) → forma de pagamento → condição padrão. Uma regra na tela de
+   * mapeamento para o campo substitui tudo isso.
+   */
+  paymentTerms: PaymentTermsSettings;
   /** Convenções dos payloads de retorno à ControllerAPI do Vision (validar com o suporte Vision). */
   visionReturn: {
     codigoIntegracao: number;
@@ -111,6 +133,11 @@ export const DEFAULT_SETTINGS: IntegrationSettings = {
     upsertCustomer: true,
     lineTotalMismatch: "BLOCK",
   },
+  paymentTerms: {
+    byPaymentForm: [],
+    defaultCondition: null,
+    defaultConditionDescription: "",
+  },
   visionReturn: {
     codigoIntegracao: 1,
     tipoNotaFiscalProduto: 0,
@@ -127,15 +154,27 @@ export const DEFAULT_SETTINGS: IntegrationSettings = {
   },
 };
 
-export function mergeSettings(stored: Partial<IntegrationSettings> | null | undefined): IntegrationSettings {
+/**
+ * Valores iniciais vindos do ambiente (antes de alguém salvar a tela de Configurações).
+ * Ex.: SYNC_INITIAL_LOOKBACK_DAYS define quantos dias a primeira coleta busca.
+ */
+export function settingsDefaults(overrides: { initialLookbackDays?: number } = {}): IntegrationSettings {
+  return {
+    ...DEFAULT_SETTINGS,
+    sync: { ...DEFAULT_SETTINGS.sync, ...(overrides.initialLookbackDays !== undefined ? { initialLookbackDays: overrides.initialLookbackDays } : {}) },
+  };
+}
+
+export function mergeSettings(stored: Partial<IntegrationSettings> | null | undefined, defaults: IntegrationSettings = DEFAULT_SETTINGS): IntegrationSettings {
   const s = stored ?? {};
   return {
-    sync: { ...DEFAULT_SETTINGS.sync, ...(s.sync ?? {}) },
-    retry: { ...DEFAULT_SETTINGS.retry, ...(s.retry ?? {}) },
-    reconcile: { ...DEFAULT_SETTINGS.reconcile, ...(s.reconcile ?? {}) },
-    routing: { ...DEFAULT_SETTINGS.routing, ...(s.routing ?? {}) },
-    documents: { ...DEFAULT_SETTINGS.documents, ...(s.documents ?? {}) },
-    visionReturn: { ...DEFAULT_SETTINGS.visionReturn, ...(s.visionReturn ?? {}) },
+    sync: { ...defaults.sync, ...(s.sync ?? {}) },
+    retry: { ...defaults.retry, ...(s.retry ?? {}) },
+    reconcile: { ...defaults.reconcile, ...(s.reconcile ?? {}) },
+    routing: { ...defaults.routing, ...(s.routing ?? {}) },
+    documents: { ...defaults.documents, ...(s.documents ?? {}) },
+    paymentTerms: { ...defaults.paymentTerms, ...(s.paymentTerms ?? {}) },
+    visionReturn: { ...defaults.visionReturn, ...(s.visionReturn ?? {}) },
   };
 }
 

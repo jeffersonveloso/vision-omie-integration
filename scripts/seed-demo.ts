@@ -54,7 +54,12 @@ async function main() {
     await call("POST", `/api/mappings/value-maps/${servicos.id}/import`, { omieAccountId: id, text: "77;8800077;SRV-77 — Coleta de resíduos de saúde\n78;8800078;SRV-78 — Tratamento e destinação final" });
   }
   const settings = await call<{ settings: Record<string, Record<string, unknown>> }>("GET", "/api/settings");
-  await call("PUT", "/api/settings", { ...settings.settings, visionReturn: { ...settings.settings.visionReturn, defaultCodigoContaCorrente: 1 } });
+  await call("PUT", "/api/settings", {
+    ...settings.settings,
+    visionReturn: { ...settings.settings.visionReturn, defaultCodigoContaCorrente: 1 },
+    // Configurações › Condições de pagamento: pedidos "SEM FINANCEIRO" (forma 2) vão à vista.
+    paymentTerms: { ...settings.settings.paymentTerms, byPaymentForm: [{ visionCode: 2, visionDescription: "SEM FINANCEIRO", omieCode: "000", omieDescription: "À vista" }] },
+  });
 
   const sync = await call<{ run: { stats: Record<string, number> } }>("POST", "/api/sync/run", { job: "SYNC" });
   console.log("Sincronização:", sync.run.stats);

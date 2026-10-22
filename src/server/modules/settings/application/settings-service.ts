@@ -45,6 +45,21 @@ export const settingsSchema = z.object({
     upsertCustomer: z.boolean(),
     lineTotalMismatch: z.enum(["BLOCK", "ADJUST_QUANTITY", "ADJUST_UNIT_PRICE"]),
   }),
+  paymentTerms: z.object({
+    byPaymentForm: z
+      .array(
+        z.object({
+          visionCode: z.number({ error: "Informe o código numérico da forma de pagamento no Vision." }).int("Informe o código numérico da forma de pagamento no Vision."),
+          visionDescription: z.string().trim().max(120),
+          omieCode: z.string().trim().min(1, "Escolha a condição do Omie.").max(20),
+          omieDescription: z.string().trim().max(200),
+        }),
+      )
+      .max(200)
+      .refine((rows) => new Set(rows.map((r) => r.visionCode)).size === rows.length, "Cada forma de pagamento do Vision só pode aparecer uma vez."),
+    defaultCondition: z.string().trim().max(20).nullable().transform((v) => (v ? v : null)),
+    defaultConditionDescription: z.string().trim().max(200),
+  }),
   visionReturn: z.object({
     codigoIntegracao: z.coerce.number().int(),
     tipoNotaFiscalProduto: z.coerce.number().int(),

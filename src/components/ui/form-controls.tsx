@@ -58,7 +58,7 @@ export function Switch({ className, ...props }: React.ComponentProps<typeof Swit
 
 export function Field({ label, htmlFor, hint, error, children, className }: { label: string; htmlFor?: string; hint?: React.ReactNode; error?: string | null; children: React.ReactNode; className?: string }) {
   return (
-    <div className={cn("grid gap-1.5", className)}>
+    <div className={cn("grid content-start gap-1.5", className)}>
       <Label htmlFor={htmlFor}>{label}</Label>
       {children}
       {error ? <p className="text-[13px] text-error">{error}</p> : hint ? <p className="text-[13px] text-muted-foreground">{hint}</p> : null}

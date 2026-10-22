@@ -36,7 +36,7 @@ export function FieldRulesTab() {
 
   const accountName = accounts.data?.accounts.find((a) => a.id === accountId)?.name ?? "todas as contas";
   const groups = [...new Set((rules.data?.rules ?? []).map((r) => r.group))];
-  const pendingRequired = (rules.data?.rules ?? []).filter((r) => r.required && !r.system && (!r.spec || r.spec.sourceType === "IGNORE"));
+  const pendingRequired = (rules.data?.rules ?? []).filter((r) => r.required && !r.system && !(r.managedBy && !r.spec) && (!r.spec || r.spec.sourceType === "IGNORE"));
 
   const open = (rule: EffectiveRuleView | null) => {
     setEditing(rule);
@@ -102,7 +102,8 @@ export function FieldRulesTab() {
                 {(rules.data?.rules ?? [])
                   .filter((r) => r.group === group)
                   .map((rule) => {
-                    const missing = rule.required && !rule.system && (!rule.spec || rule.spec.sourceType === "IGNORE");
+                    const managed = Boolean(rule.managedBy) && !rule.spec;
+                    const missing = rule.required && !rule.system && !managed && (!rule.spec || rule.spec.sourceType === "IGNORE");
                     return (
                       <li key={rule.key} className="grid items-center gap-x-4 gap-y-1 px-5 py-2.5 md:grid-cols-[minmax(0,15rem)_minmax(0,1fr)_9rem_auto]">
                         <div className="min-w-0">
@@ -110,10 +111,10 @@ export function FieldRulesTab() {
                           {rule.required ? <span className="ml-1.5 text-[12px] text-error">obrigatório</span> : null}
                           <Mono className="block truncate text-[12px] text-muted-foreground">{rule.key}</Mono>
                         </div>
-                        <p className={cn("min-w-0 text-[13px] break-words", missing ? "font-semibold text-error" : rule.system ? "text-muted-foreground" : "")}>
-                          {rule.system ? "Preenchido pela integração" : missing ? "Sem regra configurada" : describeSpec(rule.spec, maps.data?.maps ?? [], catalog.data?.transforms)}
+                        <p className={cn("min-w-0 text-[13px] break-words", missing ? "font-semibold text-error" : rule.system || managed ? "text-muted-foreground" : "")}>
+                          {rule.system ? "Preenchido pela integração" : managed ? `Definido em ${rule.managedBy}` : missing ? "Sem regra configurada" : describeSpec(rule.spec, maps.data?.maps ?? [], catalog.data?.transforms)}
                         </p>
-                        <span className={cn("text-[12px]", rule.origin === "DEFAULT" ? "text-muted-foreground" : "font-semibold text-sent")}>{rule.system ? "" : ORIGIN_TEXT[rule.origin]}</span>
+                        <span className={cn("text-[12px]", rule.origin === "DEFAULT" ? "text-muted-foreground" : "font-semibold text-sent")}>{rule.system ? "" : managed ? "Configurações" : ORIGIN_TEXT[rule.origin]}</span>
                         <div className="justify-self-end">
                           {rule.system ? null : (
                             <Button size="sm" variant={missing ? "default" : "ghost"} onClick={() => open(rule)}>

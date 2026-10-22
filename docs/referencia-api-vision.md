@@ -88,7 +88,7 @@ Todos os campos, inclusive os que o Vision vier a acrescentar, aparecem na tela 
 | Serviço vem com `CodigoServico: 0`; o código está em `CodigoMaterial` | O de-para *Serviços* usa `codigoMaterial` por padrão. |
 | `Seq: 0` nas linhas | O código de integração do item usa a posição da linha quando `Seq` é 0. |
 | `271 × 5,18 = 1.403,78`, mas `ValorTotal = 1.408,70` | Checagem antes do envio. Padrão: bloqueia com a diferença explicada. Em Configurações dá para escolher recalcular a quantidade (271,9498) ou o valor unitário. O Swagger declara `Quantidade` como inteiro, então a hipótese mais provável é que a quantidade em kg esteja sendo truncada (271,95 × 5,18 = 1.408,70). |
-| `SEM FINANCEIRO` sem parcelas | A condição 999 (parcelas informadas) exige parcelas: o pedido para com a pendência "Condição de pagamento" até ser mapeada uma condição do Omie para esses casos. Sem parcelas no Vision não há retorno de baixas, e o acompanhamento encerra quando a nota é informada. |
+| `SEM FINANCEIRO` sem parcelas | A condição vem de *Configurações › Condições de pagamento* (forma de pagamento → condição do Omie, ou condição padrão). Sem nada configurado, o pedido para com a pendência "Condição de pagamento". Sem parcelas no Vision não há retorno de baixas, e o acompanhamento encerra quando a nota é informada. |
 | `Complemento: "N/A"` | Vai como está para o Omie. Se não quiser, crie uma regra para o campo Complemento. |
 
 ## Retornos (Omie → Vision)

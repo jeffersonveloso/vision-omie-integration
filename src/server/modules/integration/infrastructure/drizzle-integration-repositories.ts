@@ -293,6 +293,10 @@ export class DrizzleCheckpointRepository implements CheckpointRepository {
       .values({ key, value: value as object, updatedAt: new Date() })
       .onConflictDoUpdate({ target: syncCheckpoints.key, set: { value: value as object, updatedAt: new Date() } });
   }
+
+  async delete(key: string): Promise<void> {
+    await this.db.delete(syncCheckpoints).where(eq(syncCheckpoints.key, key));
+  }
 }
 
 export class DrizzleCustomerLinkRepository implements CustomerLinkRepository {

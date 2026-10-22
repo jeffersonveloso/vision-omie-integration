@@ -12,6 +12,7 @@ export const GET = handler(async (_req, c) =>
       schedulerEnabled: c.config.SCHEDULER_ENABLED !== false,
       webhookEnabled: Boolean(c.config.OMIE_WEBHOOK_TOKEN),
       encryptionKeyConfigured: Boolean(c.config.APP_ENCRYPTION_KEY),
+      initialLookbackDaysEnv: c.config.SYNC_INITIAL_LOOKBACK_DAYS,
     },
     scheduler: c.scheduler.status(),
   }),

@@ -72,6 +72,7 @@ cp .env.example .env.local   # preencha; nunca versione este arquivo
 | `VISION_API_URL`, `VISION_USERNAME`, `VISION_PASSWORD` | ControllerAPI do Vision. |
 | `OMIE_API_URL` | Padrão `https://app.omie.com.br/api/v1`. |
 | `OMIE_READ_CACHE_MS` | Cache de consultas idênticas ao Omie (padrão 55000). |
+| `SYNC_INITIAL_LOOKBACK_DAYS` | Dias que a primeira coleta busca para trás (padrão 7). Valor inicial: depois de salvar Configurações vale o da tela, e "Recomeçar a coleta" aplica de novo. |
 | `SCHEDULER_ENABLED` | Agendador interno (padrão `true`). |
 | `OMIE_WEBHOOK_TOKEN` | Ativa `/api/webhooks/omie?token=…` (opcional). |
 
@@ -81,8 +82,9 @@ npm run build && npm start
 
 Primeiros passos na aplicação:
 
-1. **Configurações** — teste a conexão com o Vision, defina as situações elegíveis, o caminho do CNPJ da
-   empresa no pedido e as convenções do retorno (veja os pontos a validar no guia, seção 8).
+1. **Configurações** — teste a conexão com o Vision, confira a janela da primeira coleta (7 dias), defina
+   as situações elegíveis, as **condições de pagamento** (por forma de pagamento do Vision e a padrão para
+   pedidos sem parcelas) e as convenções do retorno (veja os pontos a validar no guia, seção 8).
 2. **Contas Omie** — cadastre uma conta por base e use *Testar conexão* (confere o CNPJ da base).
 3. **Mapeamentos** — em cada conta, associe o código da empresa do Vision na tabela *Empresa Vision →
    CNPJ* (o pedido do Vision não traz o CNPJ). Defina categoria e conta corrente (obrigatórias no Omie) e

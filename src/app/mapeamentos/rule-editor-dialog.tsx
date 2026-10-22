@@ -46,7 +46,7 @@ export function RuleEditorDialog({ open, onOpenChange, documentType, rule, accou
     setLastOpen(open);
     if (open) {
       setTargetField(rule?.key ?? "");
-      setSpec(rule?.spec ?? rule?.defaultSpec ?? { sourceType: "VISION_FIELD", transforms: [] });
+      setSpec(rule?.spec ?? rule?.defaultSpec ?? (rule?.managedBy ? { sourceType: "CONSTANT", transforms: [] } : { sourceType: "VISION_FIELD", transforms: [] }));
       setErrors({});
     }
   }
@@ -212,6 +212,10 @@ export function RuleEditorDialog({ open, onOpenChange, documentType, rule, accou
             {rule?.defaultSpec ? (
               <p className="rounded-control bg-surface-sunken px-3 py-2 text-[13px] text-muted-foreground">
                 Padrão do sistema: {describeSpec(rule.defaultSpec, maps, catalog.transforms)}
+              </p>
+            ) : rule?.managedBy ? (
+              <p className="rounded-control bg-surface-sunken px-3 py-2 text-[13px] text-muted-foreground">
+                Sem regra aqui, vale o que está em {rule.managedBy}. Uma regra salva aqui substitui essa configuração{accountId ? " nesta conta" : " em todas as contas"}.
               </p>
             ) : null}
           </DialogBody>

@@ -19,6 +19,8 @@ const schema = z.object({
   OMIE_TIMEOUT_MS: z.coerce.number().optional().default(60_000),
   /** Cache de consultas idênticas ao Omie (evita o bloqueio por consulta repetida em < 60 s). */
   OMIE_READ_CACHE_MS: z.coerce.number().optional().default(55_000),
+  /** Dias que a primeira coleta busca para trás (valor inicial; depois vale o da tela de Configurações). */
+  SYNC_INITIAL_LOOKBACK_DAYS: z.coerce.number().int().min(0).max(365).optional().default(7),
   SCHEDULER_ENABLED: boolish,
   OMIE_WEBHOOK_TOKEN: z.string().optional(),
 });

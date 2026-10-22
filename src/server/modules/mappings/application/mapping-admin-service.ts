@@ -16,6 +16,8 @@ export interface EffectiveRuleView {
   required: boolean;
   lookup: string | null;
   system: boolean;
+  /** Definido por uma tela de configuração enquanto não houver regra aqui. */
+  managedBy: string | null;
   custom: boolean;
   origin: "DEFAULT" | "GLOBAL" | "ACCOUNT";
   ruleId: string | null;
@@ -49,6 +51,7 @@ export class MappingAdminService {
       required: r.definition.required,
       lookup: r.definition.lookup ?? null,
       system: Boolean(r.definition.system),
+      managedBy: r.definition.managedBy ?? null,
       custom: r.custom,
       origin: r.origin,
       ruleId: r.ruleId,

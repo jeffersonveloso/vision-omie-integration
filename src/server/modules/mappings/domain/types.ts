@@ -120,6 +120,11 @@ export interface TargetFieldDefinition {
   defaultRule: RuleSpec | null;
   /** Campos preenchidos pela própria integração (somente leitura na tela). */
   system?: boolean;
+  /**
+   * Campo sem padrão no catálogo porque é definido por uma tela de configuração
+   * (ex.: "Configurações › Condições de pagamento"). Uma regra criada no mapeamento substitui a configuração.
+   */
+  managedBy?: string;
 }
 
 export type RuleOrigin = "DEFAULT" | "GLOBAL" | "ACCOUNT";
@@ -132,7 +137,7 @@ export interface EffectiveRule {
   custom: boolean;
 }
 
-export type MappingIssueKind = "MISSING_REQUIRED" | "VALUE_MAP_MISSING" | "VALUE_MAP_NOT_FOUND" | "INVALID_VALUE" | "TRUNCATED" | "LINE_TOTAL_MISMATCH" | "NO_INSTALLMENTS";
+export type MappingIssueKind = "MISSING_REQUIRED" | "VALUE_MAP_MISSING" | "VALUE_MAP_NOT_FOUND" | "INVALID_VALUE" | "TRUNCATED" | "LINE_TOTAL_MISMATCH" | "NO_INSTALLMENTS" | "NO_PAYMENT_TERM";
 
 export interface MappingIssue {
   severity: "error" | "warning";

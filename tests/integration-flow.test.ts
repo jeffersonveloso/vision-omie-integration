@@ -176,14 +176,22 @@ describe("Fluxo de integração Vision ↔ Omie", () => {
     await app.settings.update({ ...settings, documents: { ...settings.documents, lineTotalMismatch: "ADJUST_QUANTITY" } });
     const order = await orderByCode(14107);
 
-    // Com a quantidade recalculada, falta a condição de pagamento: 999 exige parcelas e o pedido não tem.
+    // Com a quantidade recalculada, falta a condição de pagamento: sem parcelas e sem condição para a forma 2.
     await app.useCases.retryOrder.execute({ orderId: order.id });
-    const noParcels = await orderByCode(14107);
-    expect(noParcels.lastError?.category).toBe("MAPPING");
-    expect(noParcels.lastError?.code).toBe("NO_INSTALLMENTS");
-    expect(noParcels.lastError?.message).toContain("SEM FINANCEIRO");
+    const noTerm = await orderByCode(14107);
+    expect(noTerm.lastError?.category).toBe("MAPPING");
+    expect(noTerm.lastError?.code).toBe("NO_PAYMENT_TERM");
+    expect(noTerm.lastError?.message).toContain("2 — SEM FINANCEIRO");
+    expect(noTerm.lastError?.hint).toContain("Configurações › Condições de pagamento");
 
-    await app.mappingAdmin.saveRule({ omieAccountId: accountIds.matriz, documentType: "SERVICE_ORDER", targetField: "Cabecalho.cCodParc", sourceType: "CONSTANT", constantValue: "000", transforms: [], active: true, notes: "Pedidos sem financeiro" });
+    // Configurações › Condições de pagamento: forma 2 (SEM FINANCEIRO) → 000 (à vista).
+    const current = await app.settings.get();
+    await app.settings.update({ ...current, paymentTerms: { ...current.paymentTerms, byPaymentForm: [{ visionCode: 2, visionDescription: "SEM FINANCEIRO", omieCode: "000", omieDescription: "À vista" }] } });
+    const preview = await app.useCases.preview.execute({ orderId: order.id });
+    const term = preview.documents.find((d) => d.type === "SERVICE_ORDER")!.trace.find((t) => t.key === "Cabecalho.cCodParc")!;
+    expect(term).toMatchObject({ origin: "SYSTEM", value: "000" });
+    expect(term.source).toContain("Forma de pagamento 2 — SEM FINANCEIRO → 000 À vista");
+
     const result = await app.useCases.retryOrder.execute({ orderId: order.id });
     expect(result.ok).toBe(true);
     const os = omie.apps.get(COMPANIES.matriz.appKey)!.documents.find((d) => d.integrationCode === "VIS-14107-OS")!;
@@ -212,6 +220,15 @@ describe("Fluxo de integração Vision ↔ Omie", () => {
     const stats = await app.queries.stats();
     expect(stats.totals.all).toBe(8);
     expect(stats.errorsByCategory[0]).toMatchObject({ category: "ROUTING", count: 1 });
+  });
+
+  it("mostra até onde a coleta chegou e recomeça sem duplicar pedidos", async () => {
+    expect((await app.collectionWindow.status()).started).toBe(true);
+    const restarted = await app.collectionWindow.restart();
+    expect(restarted).toMatchObject({ started: false, initialLookbackDays: 7 });
+    const run = await app.useCases.syncJob.execute({ trigger: "MANUAL" });
+    expect(run.stats.discovered).toBe(0);
+    expect((await app.queries.stats()).totals.all).toBe(8);
   });
 
   it("simulação de mapeamento mostra o payload sem chamar o Omie", async () => {

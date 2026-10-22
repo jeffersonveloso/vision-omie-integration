@@ -9,9 +9,19 @@ import type { VisionGateway } from "../ports";
 
 export const VISION_CHECKPOINT_KEY = "vision.orders.updated";
 
-interface Checkpoint {
+export interface CollectionCheckpoint {
   lastUpdatedAt: string;
   lastRunTo: string;
+}
+
+/**
+ * Início da janela da próxima coleta: sem checkpoint, `initialLookbackDays` para trás;
+ * depois, a maior data de atualização já vista menos a sobreposição.
+ */
+export function nextWindowFrom(checkpoint: CollectionCheckpoint | null, sync: { initialLookbackDays: number; overlapDays: number }, now: Date, timeZone: string): string {
+  return checkpoint
+    ? toIsoDate(addDays(new Date(checkpoint.lastUpdatedAt), -sync.overlapDays), timeZone)
+    : toIsoDate(addDays(now, -sync.initialLookbackDays), timeZone);
 }
 
 export interface CollectResult {
@@ -48,15 +58,11 @@ export class CollectVisionOrders {
     const { vision, orders, checkpoints, settings: settingsRepo, logs, ids, clock, timeZone } = this.deps;
     const settings = await settingsRepo.get();
     const now = clock.now();
-    const checkpoint = await checkpoints.get<Checkpoint>(VISION_CHECKPOINT_KEY);
+    const checkpoint = await checkpoints.get<CollectionCheckpoint>(VISION_CHECKPOINT_KEY);
     const runLog = new ExecutionLog({ orderId: null, runId: input.runId }, clock).step("COLLECT");
 
     const windowTo = input.to ?? toIsoDate(now, timeZone);
-    const windowFrom =
-      input.from ??
-      (checkpoint
-        ? toIsoDate(addDays(new Date(checkpoint.lastUpdatedAt), -settings.sync.overlapDays), timeZone)
-        : toIsoDate(addDays(now, -settings.sync.initialLookbackDays), timeZone));
+    const windowFrom = input.from ?? nextWindowFrom(checkpoint, settings.sync, now, timeZone);
 
     const statuses: Array<number | null> = settings.sync.eligibleStatusCodes.length ? settings.sync.eligibleStatusCodes : [null];
     const collected = new Map<number, VisionOrderSummary>();
@@ -113,7 +119,7 @@ export class CollectVisionOrders {
         await orderLog.flush(logs);
       }
 
-      await checkpoints.set<Checkpoint>(VISION_CHECKPOINT_KEY, {
+      await checkpoints.set<CollectionCheckpoint>(VISION_CHECKPOINT_KEY, {
         lastUpdatedAt: (maxUpdated ?? now).toISOString(),
         lastRunTo: windowTo,
       });

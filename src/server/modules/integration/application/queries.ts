@@ -84,6 +84,14 @@ export interface DashboardStats {
   retryScheduled: number;
 }
 
+export interface PaymentFormSeen {
+  code: number;
+  /** Descrição do cadastro do cliente quando a forma é a mesma do pedido. */
+  description: string | null;
+  orders: number;
+  withoutParcels: number;
+}
+
 export interface OrderQueryService {
   list(filter: OrderListFilter): Promise<{ items: OrderListItem[]; total: number; counts: Record<string, number> }>;
   detail(id: string): Promise<OrderDetail | null>;
@@ -91,4 +99,6 @@ export interface OrderQueryService {
   stats(): Promise<DashboardStats>;
   runs(limit: number, job?: string): Promise<SyncRun[]>;
   visionFieldPaths(limit: number): Promise<Array<{ path: string; example: unknown; occurrences: number }>>;
+  /** Formas de pagamento encontradas nos pedidos já lidos do Vision (para configurar as condições). */
+  paymentFormsSeen(): Promise<PaymentFormSeen[]>;
 }

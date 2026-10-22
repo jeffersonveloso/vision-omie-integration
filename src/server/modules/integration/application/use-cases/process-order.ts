@@ -14,7 +14,7 @@ import type { AccountRouter } from "../account-router";
 import type { CustomerSyncService } from "../customer-sync";
 import { ExecutionLog } from "../execution-log";
 import { OmiePayloadBuilder, splitParcels } from "../omie-payload-builder";
-import { installmentIssues, prepareLines } from "../order-checks";
+import { applyPaymentTerms, prepareLines } from "../order-checks";
 import type { OmieGatewayFactory, VisionGateway } from "../ports";
 
 export type ProcessOutcome =
@@ -149,7 +149,7 @@ export class ProcessOrder {
     const docMappings = new Map<DocumentKind, MappingResult>();
     for (const doc of pending) docMappings.set(doc.kind, this.engine.map(doc.kind as DocumentType, mappingPayload, contextFor(doc.kind as DocumentType)));
     const issues = [customerMapping, ...docMappings.values()].flatMap((m) => m.issues);
-    for (const [kind, mapping] of docMappings) issues.push(...installmentIssues(kind as DocumentType, mapping, snapshot, mappingPayload, settings.documents.sendVisionInstallments));
+    for (const [kind, mapping] of docMappings) issues.push(...applyPaymentTerms(kind as DocumentType, mapping, snapshot, mappingPayload, settings));
     this.assertMapping(issues, log);
     for (const warning of issues.filter((i) => i.severity === "warning")) log.warn(warning.message, { campo: warning.targetField });
 

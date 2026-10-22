@@ -14,6 +14,7 @@ import { AccountRouter } from "@/server/modules/integration/application/account-
 import { CustomerSyncService } from "@/server/modules/integration/application/customer-sync";
 import type { OmieGatewayFactory, VisionGateway } from "@/server/modules/integration/application/ports";
 import { CollectVisionOrders } from "@/server/modules/integration/application/use-cases/collect-vision-orders";
+import { CollectionWindowService } from "@/server/modules/integration/application/collection-window";
 import { HandleOmieWebhook } from "@/server/modules/integration/application/use-cases/handle-omie-webhook";
 import { RunReconcileJob, RunSyncJob } from "@/server/modules/integration/application/use-cases/jobs";
 import { AcknowledgeVisionUpdate, RetryOrder, RetryOrders, SetOrderIgnored } from "@/server/modules/integration/application/use-cases/order-actions";
@@ -41,6 +42,7 @@ import { OmieAccountService } from "@/server/modules/omie-accounts/application/o
 import { DrizzleLookupCache } from "@/server/modules/omie-accounts/infrastructure/drizzle-lookup-cache";
 import { DrizzleOmieAccountRepository } from "@/server/modules/omie-accounts/infrastructure/drizzle-omie-account-repository";
 import { SettingsService } from "@/server/modules/settings/application/settings-service";
+import { settingsDefaults } from "@/server/modules/settings/domain/integration-settings";
 import { DrizzleSettingsRepository } from "@/server/modules/settings/infrastructure/drizzle-settings-repository";
 
 export interface ContainerOverrides {
@@ -72,7 +74,7 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   // Repositórios
   const accounts = new DrizzleOmieAccountRepository(db, cipher);
   const lookupCache = new DrizzleLookupCache(db);
-  const settingsRepo = new DrizzleSettingsRepository(db);
+  const settingsRepo = new DrizzleSettingsRepository(db, settingsDefaults({ initialLookbackDays: config.SYNC_INITIAL_LOOKBACK_DAYS }));
   const fieldRules = new DrizzleFieldRuleRepository(db);
   const valueMaps = new DrizzleValueMapRepository(db);
   const valueMapEntries = new DrizzleValueMapEntryRepository(db);
@@ -102,6 +104,7 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   const customers = new CustomerSyncService(customerLinks, clock);
 
   const collect = new CollectVisionOrders({ vision, orders, checkpoints, settings: settingsRepo, logs, ids, clock, timeZone });
+  const collectionWindow = new CollectionWindowService({ checkpoints, settings: settingsRepo, clock, timeZone });
   const processOrder = new ProcessOrder({ orders, vision, omie, router, mappingContexts, customers, settings: settingsRepo, logs, ids, clock, timeZone });
   const reconcileOrder = new ReconcileOrder({ orders, accounts, entries: valueMapEntries, omie, vision, downloader, settings: settingsRepo, logs, clock, timeZone });
   const retryOrder = new RetryOrder({ orders, process: processOrder, reconcile: reconcileOrder, logs, clock });
@@ -129,6 +132,7 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
     settings,
     omieAccounts,
     mappingAdmin,
+    collectionWindow,
     useCases: { collect, processOrder, reconcileOrder, retryOrder, retryOrders, setIgnored, acknowledgeUpdate, preview, webhook, syncJob, reconcileJob },
     scheduler,
   };

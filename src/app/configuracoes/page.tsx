@@ -12,6 +12,8 @@ import { api, ApiError } from "@/lib/api";
 import { formatRelative } from "@/lib/format";
 import { LINE_TOTAL_POLICY_LABELS, type LineTotalPolicy } from "@/server/modules/integration/domain/line-totals";
 import type { IntegrationSettings } from "@/server/modules/settings/domain/integration-settings";
+import { CollectionWindow } from "./collection-window";
+import { PaymentTermsPanel } from "./payment-terms-panel";
 
 interface SettingsResponse {
   settings: IntegrationSettings;
@@ -24,6 +26,7 @@ interface SettingsResponse {
     schedulerEnabled: boolean;
     webhookEnabled: boolean;
     encryptionKeyConfigured: boolean;
+    initialLookbackDaysEnv: number;
   };
   scheduler: { running: boolean; jobs: Array<{ name: string; enabled: boolean; nextRunAt: string | null; lastRunAt: string | null }> };
 }
@@ -99,8 +102,13 @@ function SettingsForm({ initial, data }: { initial: IntegrationSettings; data: S
             <Field label="Agendamento (cron)" htmlFor="sync-cron" error={err("sync.cron")} hint="*/5 * * * * = a cada 5 minutos">
               <Input id="sync-cron" value={s.sync.cron} onChange={(e) => patch("sync", { cron: e.target.value })} className="font-mono" />
             </Field>
-            <Field label="Primeira coleta: dias para trás" htmlFor="lookback" error={err("sync.initialLookbackDays")}>
-              <Input id="lookback" type="number" min={0} value={s.sync.initialLookbackDays} onChange={(e) => patch("sync", { initialLookbackDays: Number(e.target.value) })} />
+            <Field
+              label="Primeira coleta: dias para trás"
+              htmlFor="lookback"
+              error={err("sync.initialLookbackDays")}
+              hint={`Vale na primeira coleta e depois de recomeçar. Valor inicial do servidor: SYNC_INITIAL_LOOKBACK_DAYS=${env.initialLookbackDaysEnv}.`}
+            >
+              <Input id="lookback" type="number" min={0} max={365} value={s.sync.initialLookbackDays} onChange={(e) => patch("sync", { initialLookbackDays: Number(e.target.value) })} />
             </Field>
             <Field label="Sobreposição da janela (dias)" htmlFor="overlap" error={err("sync.overlapDays")} hint="Evita perder pedidos na virada do dia.">
               <Input id="overlap" type="number" min={0} value={s.sync.overlapDays} onChange={(e) => patch("sync", { overlapDays: Number(e.target.value) })} />
@@ -118,6 +126,7 @@ function SettingsForm({ initial, data }: { initial: IntegrationSettings; data: S
               <Input id="concurrency" type="number" min={1} max={4} value={s.sync.concurrency} onChange={(e) => patch("sync", { concurrency: Number(e.target.value) })} />
             </Field>
           </div>
+          <CollectionWindow unsavedLookback={s.sync.initialLookbackDays !== initial.sync.initialLookbackDays} />
         </div>
       </Panel>
 
@@ -169,7 +178,6 @@ function SettingsForm({ initial, data }: { initial: IntegrationSettings; data: S
           </div>
           <ToggleRow id="send-pv" label="Gerar pedido de venda para produtos" checked={s.documents.sendSalesOrders} onChange={(sendSalesOrders) => patch("documents", { sendSalesOrders })} />
           <ToggleRow id="send-os" label="Gerar ordem de serviço para serviços" checked={s.documents.sendServiceOrders} onChange={(sendServiceOrders) => patch("documents", { sendServiceOrders })} />
-          <ToggleRow id="send-parcels" label="Enviar as parcelas do Vision" description="Usa a condição de pagamento 999 (parcelas manuais) com os vencimentos e valores do pedido." checked={s.documents.sendVisionInstallments} onChange={(sendVisionInstallments) => patch("documents", { sendVisionInstallments })} />
           <ToggleRow id="upsert" label="Atualizar o cadastro do cliente no Omie a cada envio" description="Desligado, o cliente é cadastrado só na primeira vez." checked={s.documents.upsertCustomer} onChange={(upsertCustomer) => patch("documents", { upsertCustomer })} />
           <Field
             label="Quando quantidade × valor unitário não fecha o total da linha"
@@ -186,6 +194,14 @@ function SettingsForm({ initial, data }: { initial: IntegrationSettings; data: S
           </Field>
         </div>
       </Panel>
+
+      <PaymentTermsPanel
+        value={s.paymentTerms}
+        onChange={(next) => patch("paymentTerms", next)}
+        sendInstallments={s.documents.sendVisionInstallments}
+        onSendInstallmentsChange={(sendVisionInstallments) => patch("documents", { sendVisionInstallments })}
+        err={err}
+      />
 
       <Panel>
         <details>
@@ -236,7 +252,7 @@ export default function SettingsPage() {
   const { data, isLoading } = useQuery({ queryKey: ["settings"], queryFn: () => api.get<SettingsResponse>("/api/settings") });
   return (
     <>
-      <PageHeader title="Configurações" description="Agendamento, novas tentativas, roteamento por CNPJ e convenções do retorno ao Vision." />
+      <PageHeader title="Configurações" description="Coleta, novas tentativas, roteamento, condições de pagamento e convenções do retorno ao Vision." />
       {isLoading || !data ? <Skeleton className="h-[40rem]" /> : <SettingsForm key={JSON.stringify(data.settings)} initial={data.settings} data={data} />}
     </>
   );

@@ -101,6 +101,10 @@ export class MappingEngine {
     const base = { documentType, targetField: definition.key, label: definition.label, itemIndex };
     const itemLabel = itemIndex !== undefined ? `Item ${itemIndex + 1}: ` : "";
 
+    if (!spec && definition.managedBy) {
+      // Preenchido depois pela integração a partir da configuração (ex.: condições de pagamento).
+      return { value: undefined, raw: undefined, source: `Definido em ${definition.managedBy}`, issues };
+    }
     if (!spec || spec.sourceType === "IGNORE") {
       if (definition.required) {
         issues.push({

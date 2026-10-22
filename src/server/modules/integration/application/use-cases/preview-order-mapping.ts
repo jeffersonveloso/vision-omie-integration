@@ -10,7 +10,7 @@ import type { IntegrationOrderRepository } from "../../domain/repositories";
 import { snapshotVisionOrder, type VisionOrderPayload } from "../../domain/vision-order";
 import type { AccountRouter } from "../account-router";
 import { OmiePayloadBuilder } from "../omie-payload-builder";
-import { installmentIssues, prepareLines } from "../order-checks";
+import { applyPaymentTerms, prepareLines } from "../order-checks";
 import type { VisionGateway } from "../ports";
 
 export interface MappingPreview {
@@ -79,7 +79,7 @@ export class PreviewOrderMapping {
     const mapped = lines.payload;
     const extra = (type: DocumentType, m: ReturnType<MappingEngine["map"]>) => [
       ...lines.issues.filter((i) => i.documentType === type),
-      ...installmentIssues(type, m, snapshot, mapped, settings.documents.sendVisionInstallments),
+      ...applyPaymentTerms(type, m, snapshot, mapped, settings),
     ];
 
     const customer = this.engine.map("CUSTOMER", mapped, contextFor("CUSTOMER"));
@@ -88,11 +88,13 @@ export class PreviewOrderMapping {
     const buildBase = { customerId: 0, visionOrderCode: order.visionOrderCode, visionOrder: mapped, parcels: snapshot.parcels, sendInstallments: settings.documents.sendVisionInstallments, timeZone: this.deps.timeZone };
     if (snapshot.hasProducts && settings.documents.sendSalesOrders) {
       const m = this.engine.map("SALES_ORDER", mapped, contextFor("SALES_ORDER"));
-      documents.push({ type: "SALES_ORDER", payload: this.builder.salesOrder(m, { ...buildBase, integrationCode: documentIntegrationCode(prefix, "SALES_ORDER", order.visionOrderCode) }), issues: [...extra("SALES_ORDER", m), ...m.issues], trace: m.trace });
+      const issues = [...extra("SALES_ORDER", m), ...m.issues]; // antes de montar: a condição de pagamento entra no mapeamento aqui
+      documents.push({ type: "SALES_ORDER", payload: this.builder.salesOrder(m, { ...buildBase, integrationCode: documentIntegrationCode(prefix, "SALES_ORDER", order.visionOrderCode) }), issues, trace: m.trace });
     }
     if (snapshot.hasServices && settings.documents.sendServiceOrders) {
       const m = this.engine.map("SERVICE_ORDER", mapped, contextFor("SERVICE_ORDER"));
-      documents.push({ type: "SERVICE_ORDER", payload: this.builder.serviceOrder(m, { ...buildBase, integrationCode: documentIntegrationCode(prefix, "SERVICE_ORDER", order.visionOrderCode) }), issues: [...extra("SERVICE_ORDER", m), ...m.issues], trace: m.trace });
+      const issues = [...extra("SERVICE_ORDER", m), ...m.issues]; // antes de montar: a condição de pagamento entra no mapeamento aqui
+      documents.push({ type: "SERVICE_ORDER", payload: this.builder.serviceOrder(m, { ...buildBase, integrationCode: documentIntegrationCode(prefix, "SERVICE_ORDER", order.visionOrderCode) }), issues, trace: m.trace });
     }
     return { account: { id: account.id, name: account.name, cnpj: account.cnpj.formatted() }, routingError, documents, visionPayload: payload, fetchedFromVision };
   }
