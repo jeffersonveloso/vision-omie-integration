@@ -17,6 +17,18 @@ jobs:
     name: Tipos, testes e cobertura
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-retries 10
+    env:
+      # Testes da fila de webhooks com BullMQ num Redis de verdade.
+      TEST_REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,6 +51,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-retries 10
       postgres:
         image: postgres:16-alpine
         env:
@@ -52,6 +72,7 @@ jobs:
     env:
       # Cada arquivo de teste cria e apaga o próprio banco (tests/support/test-database.ts).
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
+      TEST_REDIS_URL: redis://localhost:6379
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

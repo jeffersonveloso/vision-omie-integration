@@ -4,13 +4,14 @@ import {
   customerLinks,
   integrationLogs,
   integrationOrders,
+  omieAccounts,
   jobLocks,
   omieDocuments,
   syncCheckpoints,
   syncRuns,
   webhookEvents,
 } from "@/server/infrastructure/database/schema";
-import type { WebhookEventStore } from "../application/use-cases/handle-omie-webhook";
+import type { WebhookEvent, WebhookEventListFilter, WebhookEventRepository, WebhookEventStatus, WebhookEventView } from "../domain/webhook-event";
 import { type ErrorCategory, RETURN_STEPS, type StoredError } from "../domain/integration-error";
 import { IntegrationOrder, type OrderStatus } from "../domain/integration-order";
 import { type DocumentKind, type DocumentStatus, type FinancialTitle, type FiscalInfo, type FiscalReturn, OmieDocument } from "../domain/omie-document";
@@ -356,15 +357,102 @@ export class DrizzleJobLock implements JobLock {
   }
 }
 
-export class DrizzleWebhookEventStore implements WebhookEventStore {
+export class DrizzleWebhookEventRepository implements WebhookEventRepository {
   constructor(private readonly db: Database) {}
 
-  async save(event: { id: string; source: string; topic: string | null; payload: unknown; receivedAt: Date; relatedOrderId: string | null }): Promise<void> {
-    await this.db.insert(webhookEvents).values({ ...event, payload: (event.payload ?? {}) as object });
+  private toEvent(row: typeof webhookEvents.$inferSelect): WebhookEvent {
+    return { ...row, status: row.status as WebhookEventStatus };
+  }
+
+  async insert(event: WebhookEvent): Promise<{ inserted: boolean; id: string }> {
+    const inserted = await this.db
+      .insert(webhookEvents)
+      .values({ ...event, payload: (event.payload ?? {}) as object })
+      .onConflictDoNothing({ target: [webhookEvents.source, webhookEvents.messageId] })
+      .returning({ id: webhookEvents.id });
+    if (inserted.length) return { inserted: true, id: inserted[0].id };
+    const [existing] = await this.db
+      .select({ id: webhookEvents.id })
+      .from(webhookEvents)
+      .where(and(eq(webhookEvents.source, event.source), eq(webhookEvents.messageId, event.messageId ?? "")))
+      .limit(1);
+    return { inserted: false, id: existing?.id ?? event.id };
+  }
+
+  async findById(id: string): Promise<WebhookEvent | null> {
+    const [row] = await this.db.select().from(webhookEvents).where(eq(webhookEvents.id, id)).limit(1);
+    return row ? this.toEvent(row) : null;
+  }
+
+  async markQueued(ids: string[], at: Date): Promise<void> {
+    if (!ids.length) return;
+    await this.db
+      .update(webhookEvents)
+      .set({ status: "QUEUED", enqueuedAt: at })
+      .where(and(inArray(webhookEvents.id, ids), inArray(webhookEvents.status, ["RECEIVED", "QUEUED", "FAILED"])));
+  }
+
+  async markProcessing(id: string, _at: Date): Promise<void> {
+    await this.db.update(webhookEvents).set({ status: "PROCESSING", attempts: sql`${webhookEvents.attempts} + 1` }).where(eq(webhookEvents.id, id));
+  }
+
+  async markFinished(id: string, input: { status: "DONE" | "IGNORED"; note: string | null; relatedOrderId: string | null; omieAccountId: string | null }, at: Date): Promise<void> {
+    await this.db.update(webhookEvents).set({ ...input, lastError: null, processedAt: at }).where(eq(webhookEvents.id, id));
+  }
+
+  async markError(id: string, error: string, final: boolean): Promise<void> {
+    await this.db.update(webhookEvents).set({ status: final ? "FAILED" : "QUEUED", lastError: error.slice(0, 2000) }).where(eq(webhookEvents.id, id));
+  }
+
+  async listStale(before: Date, limit: number): Promise<string[]> {
+    const rows = await this.db
+      .select({ id: webhookEvents.id })
+      .from(webhookEvents)
+      .where(
+        or(
+          and(eq(webhookEvents.status, "RECEIVED"), lt(webhookEvents.receivedAt, before)),
+          // Na fila há tempo demais: o job pode ter se perdido (Redis reiniciado sem persistência).
+          and(eq(webhookEvents.status, "QUEUED"), lt(webhookEvents.enqueuedAt, new Date(before.getTime() - 13 * 60_000))),
+        ),
+      )
+      .orderBy(asc(webhookEvents.receivedAt))
+      .limit(limit);
+    return rows.map((r) => r.id);
+  }
+
+  async listIdsByStatus(status: WebhookEventStatus, limit: number): Promise<string[]> {
+    const rows = await this.db.select({ id: webhookEvents.id }).from(webhookEvents).where(eq(webhookEvents.status, status)).orderBy(asc(webhookEvents.receivedAt)).limit(limit);
+    return rows.map((r) => r.id);
+  }
+
+  async list(filter: WebhookEventListFilter): Promise<{ items: WebhookEventView[]; total: number; counts: Partial<Record<WebhookEventStatus, number>> }> {
+    const where = filter.status ? eq(webhookEvents.status, filter.status) : undefined;
+    const [rows, [{ total }], grouped] = await Promise.all([
+      this.db
+        .select({ event: webhookEvents, visionOrderCode: integrationOrders.visionOrderCode, accountName: omieAccounts.name })
+        .from(webhookEvents)
+        .leftJoin(integrationOrders, eq(integrationOrders.id, webhookEvents.relatedOrderId))
+        .leftJoin(omieAccounts, eq(omieAccounts.id, webhookEvents.omieAccountId))
+        .where(where)
+        .orderBy(sql`${webhookEvents.receivedAt} desc`)
+        .limit(filter.pageSize)
+        .offset((filter.page - 1) * filter.pageSize),
+      this.db.select({ total: sql<number>`count(*)::int` }).from(webhookEvents).where(where),
+      this.db.select({ status: webhookEvents.status, count: sql<number>`count(*)::int` }).from(webhookEvents).groupBy(webhookEvents.status),
+    ]);
+    return {
+      items: rows.map((r) => ({ ...this.toEvent(r.event), visionOrderCode: r.visionOrderCode ?? null, accountName: r.accountName ?? null })),
+      total: Number(total),
+      counts: Object.fromEntries(grouped.map((g) => [g.status, Number(g.count)])),
+    };
   }
 
   async purgeBefore(date: Date): Promise<number> {
-    const deleted = await this.db.delete(webhookEvents).where(lt(webhookEvents.receivedAt, date)).returning({ id: webhookEvents.id });
+    // Eventos ainda pendentes nunca são apagados pela retenção.
+    const deleted = await this.db
+      .delete(webhookEvents)
+      .where(and(lt(webhookEvents.receivedAt, date), inArray(webhookEvents.status, ["DONE", "IGNORED", "FAILED"])))
+      .returning({ id: webhookEvents.id });
     return deleted.length;
   }
 }

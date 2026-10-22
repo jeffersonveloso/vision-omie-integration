@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { DEFAULT_SETTINGS, type IntegrationSettings } from "@/server/modules/settings/domain/integration-settings";
-import { IntegrationScheduler, MAINTENANCE_CRON } from "./integration-scheduler";
+import { IntegrationScheduler, MAINTENANCE_CRON, WEBHOOK_SWEEP_CRON } from "./integration-scheduler";
 
 function setup(initial: IntegrationSettings = DEFAULT_SETTINGS) {
   let settings = initial;
@@ -9,6 +9,7 @@ function setup(initial: IntegrationSettings = DEFAULT_SETTINGS) {
     sync: { execute: vi.fn(async () => ({})) },
     reconcile: { execute: vi.fn(async () => ({})) },
     maintenance: { execute: vi.fn(async () => null) },
+    webhookSweep: { execute: vi.fn(async () => 0) },
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     timeZone: "America/Sao_Paulo",
   };
@@ -19,11 +20,12 @@ function setup(initial: IntegrationSettings = DEFAULT_SETTINGS) {
 const job = (s: IntegrationScheduler, name: string) => s.status().jobs.find((j) => j.name === name)!;
 
 describe("agendador", () => {
-  it("registra coleta, retorno e limpeza diária com próxima execução", async () => {
+  it("registra coleta, retorno, limpeza diária e varredura dos webhooks com próxima execução", async () => {
     const { scheduler } = setup();
     await scheduler.start();
     expect(scheduler.status().running).toBe(true);
-    expect(scheduler.status().jobs.map((j) => j.name)).toEqual(["sync", "reconcile", "maintenance"]);
+    expect(scheduler.status().jobs.map((j) => j.name)).toEqual(["sync", "reconcile", "maintenance", "webhooks"]);
+    expect(job(scheduler, "webhooks").cron).toBe(WEBHOOK_SWEEP_CRON);
     expect(job(scheduler, "maintenance").cron).toBe(MAINTENANCE_CRON);
     expect(job(scheduler, "sync").nextRunAt).not.toBeNull();
     scheduler.stop();

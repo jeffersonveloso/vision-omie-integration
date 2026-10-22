@@ -22,6 +22,12 @@ const schema = z.object({
   /** Dias que a primeira coleta busca para trás (valor inicial; depois vale o da tela de Configurações). */
   SYNC_INITIAL_LOOKBACK_DAYS: z.coerce.number().int().min(0).max(365).optional().default(7),
   SCHEDULER_ENABLED: boolish,
+  /** Redis da fila de webhooks do Omie (BullMQ). Vazio = fila em memória (só desenvolvimento). */
+  REDIS_URL: z.string().optional().transform((v) => (v?.trim() ? v.trim() : undefined)),
+  /** Prefixo das chaves no Redis. */
+  REDIS_PREFIX: z.string().optional().default("vision-omie"),
+  /** Liga o worker da fila neste processo. Desligue para rodar o worker separado (npm run worker). */
+  WEBHOOK_WORKER_ENABLED: boolish,
   /** Incoming Webhook do Slack para os alertas (segredo: fica só no ambiente). */
   SLACK_WEBHOOK_URL: z.string().optional().transform((v) => (v?.trim() ? v.trim() : undefined)),
   /** Endereço público da aplicação, usado nos links dos alertas (ex.: https://integracao.ecolife.com.br). */

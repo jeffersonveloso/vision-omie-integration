@@ -13,7 +13,9 @@ import { formatDateTime, formatDuration } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { LogView } from "@/server/modules/integration/application/queries";
 import type { SyncRun } from "@/server/modules/integration/domain/repositories";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/overlays";
 import { Timeline } from "../pedidos/[id]/timeline";
+import { WebhooksPanel } from "./webhooks-panel";
 
 type Run = Omit<SyncRun, "startedAt" | "finishedAt"> & { startedAt: string; finishedAt: string | null };
 
@@ -51,7 +53,7 @@ export default function RunsPage() {
     <>
       <PageHeader
         title="Execuções"
-        description="Histórico das rotinas automáticas: a coleta e envio (Vision para Omie) e o retorno fiscal e financeiro (Omie para Vision)."
+        description="Histórico das rotinas automáticas (coleta e envio, retorno fiscal e financeiro) e dos webhooks recebidos do Omie."
         actions={
           <>
             <SyncButton job="RECONCILE" variant="outline" />
@@ -59,6 +61,15 @@ export default function RunsPage() {
           </>
         }
       />
+      <Tabs defaultValue="runs">
+        <TabsList className="mb-4">
+          <TabsTrigger value="runs">Rotinas</TabsTrigger>
+          <TabsTrigger value="webhooks">Webhooks do Omie</TabsTrigger>
+        </TabsList>
+        <TabsContent value="webhooks">
+          <WebhooksPanel />
+        </TabsContent>
+        <TabsContent value="runs">
       <div className="mb-4">
         <NativeSelect value={job} onChange={(e) => setJob(e.target.value)} className="w-auto min-w-[14rem]" aria-label="Filtrar rotina">
           <option value="">Todas as rotinas</option>
@@ -107,6 +118,8 @@ export default function RunsPage() {
           </div>
         )}
       </Panel>
+        </TabsContent>
+      </Tabs>
       <RunLogDialog run={selected} onClose={() => setSelected(null)} />
     </>
   );

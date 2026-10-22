@@ -4,7 +4,7 @@ import type { AuditService } from "@/server/modules/audit/application/audit-serv
 import { SYSTEM_CONTEXT } from "@/server/modules/audit/domain/audit-event";
 import type { SettingsRepository } from "@/server/modules/settings/domain/integration-settings";
 import type { IntegrationLogRepository, JobLock, SyncRunRepository } from "../../domain/repositories";
-import type { WebhookEventStore } from "./handle-omie-webhook";
+import type { WebhookEventRepository } from "../../domain/webhook-event";
 
 export interface PurgeResult {
   logs: number;
@@ -22,7 +22,7 @@ export class PurgeOldRecords {
     private readonly deps: {
       logs: IntegrationLogRepository;
       runs: SyncRunRepository;
-      webhooks: WebhookEventStore;
+      webhooks: Pick<WebhookEventRepository, "purgeBefore">;
       audit: AuditService;
       settings: SettingsRepository;
       lock: JobLock;

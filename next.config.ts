@@ -7,7 +7,7 @@ import type { NextConfig } from "next";
  */
 const nextConfig: NextConfig = {
   // Drivers de banco usam recursos nativos do Node / WASM e não devem ser empacotados.
-  serverExternalPackages: ["@electric-sql/pglite", "pg"],
+  serverExternalPackages: ["@electric-sql/pglite", "pg", "bullmq", "ioredis"],
   turbopack: {
     rules: {
       "*.css": {

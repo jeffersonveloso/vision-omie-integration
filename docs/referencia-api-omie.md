@@ -35,7 +35,11 @@ vincula o código existente (idempotência mesmo se a resposta da primeira inclu
 | `financas/mf` | `ListarMovimentos` (`nCodOS`, `cNatureza: "R"`) | Títulos a receber do documento: número, parcela, vencimento, valor, saldo e baixas (`nCodBaixa`, data, valor pago, juros, desconto, conta corrente). |
 
 O webhook (`/api/webhooks/omie`) aceita os eventos do Omie apenas como aviso para antecipar essa
-consulta.
+consulta. Ele grava o evento e o coloca numa fila (Redis/BullMQ) antes de responder, como o Omie
+recomenda: resposta 2xx em até 7 s; sem ela o Omie refaz 3 vezes e depois manda o evento para a fila de
+reprocessamento dele (uma tentativa a cada 10 min por até 5 dias), segurando os eventos seguintes do
+mesmo aplicativo enquanto isso. Detalhes em [GUIA-IMPLEMENTACAO.md](./GUIA-IMPLEMENTACAO.md#fila-dos-webhooks-do-omie).
+Fonte: [Características e recomendações dos webhooks](https://ajuda.omie.com.br/pt-BR/articles/9565655-caracteristicas-e-recomendacoes-dos-webhooks).
 
 ## Listas para o mapeamento
 

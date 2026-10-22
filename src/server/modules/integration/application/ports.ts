@@ -185,3 +185,24 @@ export interface RunNotifier {
   /** Nunca deve lançar erro: falha no aviso não pode afetar a execução. */
   notifyRun(notice: RunNotice): Promise<void>;
 }
+
+// ── Fila dos webhooks do Omie ─────────────────────────────────────────
+
+export interface WebhookJobContext {
+  /** Tentativa atual (1, 2, …) e o máximo configurado na fila. */
+  attempt: number;
+  maxAttempts: number;
+}
+
+export type WebhookJobProcessor = (eventId: string, context: WebhookJobContext) => Promise<void>;
+
+export interface WebhookQueue {
+  /** "redis" (BullMQ, durável e compartilhada entre instâncias) ou "memory" (desenvolvimento). */
+  readonly mode: "redis" | "memory";
+  /** Enfileira pelo id do evento; repetir o mesmo id não duplica o job. Lança erro se a fila estiver fora. */
+  enqueue(eventId: string): Promise<void>;
+  /** Liga o processamento neste processo (worker). */
+  startWorker(processor: WebhookJobProcessor): Promise<void>;
+  counts(): Promise<{ waiting: number; active: number; delayed: number; failed: number; completed: number } | null>;
+  close(): Promise<void>;
+}

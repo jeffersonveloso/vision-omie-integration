@@ -212,6 +212,40 @@ Todo o mapeamento é validado **antes** de qualquer chamada ao Omie.
 * Reenvio: no pedido, em lote (selecionados) ou "Reenviar todos" de uma causa no Painel.
 * Retentativa automática só para falhas temporárias (padrão 2, 10, 30, 60, 180 min).
 
+### Fila dos webhooks do Omie
+
+O Omie espera resposta 2xx em **até 7 s**; sem ela refaz o POST 3 vezes (1 a 4 s) e depois manda o
+evento para a fila de reprocessamento dele (DLQ), com uma tentativa a cada 10 min por até 5 dias. Os
+eventos de cada aplicativo são entregues **em ordem, um por vez**: um POST lento ou com erro segura todos
+os seguintes. A recomendação do Omie é gravar o evento e processar depois. Por isso:
+
+```mermaid
+flowchart LR
+  O[Omie] -- POST webhook --> R[Rota /api/webhooks/omie<br/>grava e responde 200]
+  R -- evento --> DB[(webhook_events)]
+  R -- id do evento --> Q[[Redis · BullMQ<br/>fila omie-webhooks]]
+  Q --> W[Worker<br/>até 6 tentativas]
+  W -- StatusPedido/StatusOS --> O
+  W -- autorização, rejeição, baixas --> V[Vision]
+  S[Varredura a cada minuto] -- reenfileira pendentes --> Q
+```
+
+* **Recebimento:** valida o token, grava o evento (o `messageId` do Omie evita processar o mesmo evento
+  duas vezes), coloca o id na fila e responde. Com o Redis fora do ar, a fila falha em menos de 1 s, o
+  evento fica gravado como *Recebido* e a resposta ao Omie continua sendo 200.
+* **Worker:** confere a App Key (evento de outra empresa é descartado), acha o pedido pelo id do
+  pedido/OS e faz a mesma consulta da rotina de retorno, devolvendo ao Vision o que mudou. Falha
+  temporária volta para a fila com espera crescente (15 s, 30 s, 1 min…); esgotadas as 6 tentativas, o
+  evento fica *Falhou*, com o erro.
+* **Varredura (a cada minuto):** reenfileira o que não chegou à fila. O id do job é o id do evento, então
+  reenfileirar não duplica.
+* **Tela:** *Execuções › Webhooks do Omie* mostra o estado da fila, cada evento (tópico, pedido, situação,
+  tentativas, erro, conteúdo recebido) e o botão **Reprocessar falhas** (fica na auditoria).
+* **Sem `REDIS_URL`:** fila em memória com o mesmo comportamento, só para desenvolvimento (não sobrevive a
+  reinício nem é dividida entre instâncias; os eventos continuam no banco e a varredura os recupera).
+* **Redis em produção:** com persistência (AOF) e `maxmemory-policy noeviction` — o `docker-compose.yml`
+  já sobe assim. No NestJS a mesma fila vira um `@Processor` do `@nestjs/bullmq`.
+
 ### Logs, auditoria e alertas
 
 | O quê | Onde | Retenção padrão |
@@ -301,7 +335,7 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 | 2. Fundação | Projeto, persistência, configuração, logs, processamento | Concluída |
 | 3. Vision → Omie | Coleta incremental, pedido completo, clientes, roteamento, PV e OS | Concluída |
 | 4. Omie → Vision | Eventos fiscais, títulos, baixas, cancelamentos | Concluída |
-| 5. Resiliência e testes | Idempotência, retries, testes, exceções | Concluída: 108 testes (≈90% das linhas do backend e das rotas), PostgreSQL real, 6 testes de tela e CI |
+| 5. Resiliência e testes | Idempotência, retries, testes, exceções | Concluída: 121 testes (≈90% das linhas do backend e das rotas), PostgreSQL e Redis reais, 7 testes de tela e CI |
 | 6. Homologação | Testes ponta a ponta reais, correções, documentação, implantação | Próximo passo |
 
 ### Checklist de homologação (critérios de aceite da proposta)
@@ -331,7 +365,10 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
   `POST /api/sync/run` (`{"job":"SYNC"}` ou `{"job":"RECONCILE"}`).
 * **Webhook do Omie (opcional):** `OMIE_WEBHOOK_TOKEN` e cadastrar
   `https://<host>/api/webhooks/omie?token=...` no Developer Omie. O webhook só antecipa a consulta; a
-  fonte de verdade continua sendo a API.
+  fonte de verdade continua sendo a API. Em produção, defina `REDIS_URL` (fila durável) — veja a seção
+  *Fila dos webhooks do Omie*.
+* **Worker separado (opcional):** com `WEBHOOK_WORKER_ENABLED=false` no servidor web, rode `npm run worker`
+  em outro processo/contêiner para processar a fila; dá para ter vários workers.
 * **Alertas no Slack:** no Slack, crie um app com *Incoming Webhooks* para o canal da equipe, coloque a
   URL em `SLACK_WEBHOOK_URL` e o endereço da aplicação em `APP_BASE_URL`; ligue em *Configurações ›
   Alertas no Slack* e use **Enviar mensagem de teste**.

@@ -1,11 +1,13 @@
 import { Cron } from "croner";
 import type { AppLogger } from "@/server/shared/application/ports";
 import type { RunReconcileJob, RunSyncJob } from "@/server/modules/integration/application/use-cases/jobs";
+import type { SweepWebhookEvents } from "@/server/modules/integration/application/use-cases/omie-webhooks";
 import type { PurgeOldRecords } from "@/server/modules/integration/application/use-cases/purge-old-records";
 import type { SchedulerControl } from "@/server/modules/settings/application/settings-service";
 import type { SettingsRepository } from "@/server/modules/settings/domain/integration-settings";
 
 export const MAINTENANCE_CRON = "17 3 * * *";
+export const WEBHOOK_SWEEP_CRON = "* * * * *";
 
 interface JobState {
   name: string;
@@ -31,6 +33,7 @@ export class IntegrationScheduler implements SchedulerControl {
       sync: RunSyncJob;
       reconcile: RunReconcileJob;
       maintenance: PurgeOldRecords;
+      webhookSweep: SweepWebhookEvents;
       logger: AppLogger;
       timeZone: string;
     },
@@ -52,6 +55,8 @@ export class IntegrationScheduler implements SchedulerControl {
     this.register("reconcile", settings.reconcile.enabled, settings.reconcile.cron, () => this.deps.reconcile.execute({ trigger: "SCHEDULE" }));
     // Retenção dos logs: uma vez por dia, fora do horário comercial.
     this.register("maintenance", true, MAINTENANCE_CRON, () => this.deps.maintenance.execute());
+    // Webhooks que não chegaram à fila (Redis fora do ar no recebimento) voltam para ela.
+    this.register("webhooks", true, WEBHOOK_SWEEP_CRON, () => this.deps.webhookSweep.execute());
   }
 
   stop(): void {

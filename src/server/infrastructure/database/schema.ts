@@ -222,14 +222,33 @@ export const lookupCache = pgTable(
   (t) => [primaryKey({ columns: [t.omieAccountId, t.entity] })],
 );
 
-export const webhookEvents = pgTable("webhook_events", {
-  id: uuid("id").primaryKey(),
-  source: text("source").notNull(),
-  topic: text("topic"),
-  payload: jsonb("payload").notNull(),
-  relatedOrderId: uuid("related_order_id"),
-  receivedAt: ts("received_at").notNull(),
-});
+/**
+ * Webhooks recebidos do Omie. O banco é a fonte da verdade (gravado antes de enfileirar);
+ * a fila (Redis/BullMQ) só transporta o id do evento até o worker.
+ */
+export const webhookEvents = pgTable(
+  "webhook_events",
+  {
+    id: uuid("id").primaryKey(),
+    source: text("source").notNull(),
+    /** messageId do Omie: o mesmo evento reenviado não é processado duas vezes. */
+    messageId: text("message_id"),
+    topic: text("topic"),
+    appKey: text("app_key"),
+    omieAccountId: uuid("omie_account_id"),
+    payload: jsonb("payload").notNull(),
+    /** RECEIVED → QUEUED → PROCESSING → DONE | IGNORED | FAILED */
+    status: text("status").notNull().default("RECEIVED"),
+    attempts: integer("attempts").notNull().default(0),
+    note: text("note"),
+    lastError: text("last_error"),
+    relatedOrderId: uuid("related_order_id"),
+    receivedAt: ts("received_at").notNull(),
+    enqueuedAt: ts("enqueued_at"),
+    processedAt: ts("processed_at"),
+  },
+  (t) => [uniqueIndex("webhook_events_message_idx").on(t.source, t.messageId), index("webhook_events_status_idx").on(t.status, t.receivedAt)],
+);
 
 /**
  * Auditoria: quem mudou o quê (contas, mapeamentos, configurações) e ações manuais nos pedidos.

@@ -67,6 +67,21 @@ test("contas Omie e execuções carregam", async ({ page }) => {
   await expect(page.getByText("Coleta e envio").first()).toBeVisible();
 });
 
+test("webhook do Omie entra na fila e aparece processado na aba de webhooks", async ({ page, request }) => {
+  const { items } = await (await request.get("/api/orders?search=14100")).json();
+  const { order } = await (await request.get(`/api/orders/${items[0].id}`)).json();
+  const omieId = order.documentsFull[0].omieId;
+  const response = await request.post("/api/webhooks/omie?token=token-e2e", { data: { messageId: `e2e-${Date.now()}`, topic: "VendaProduto.Faturada", event: { idPedido: omieId } } });
+  expect((await response.json()).queued).toBe(true);
+
+  await page.goto("/execucoes");
+  await page.getByRole("tab", { name: "Webhooks do Omie" }).click();
+  await expect(page.getByText("em memória (desenvolvimento)")).toBeVisible();
+  const row = page.getByRole("listitem").filter({ hasText: "VendaProduto.Faturada" }).first();
+  await expect(row.getByRole("link", { name: "Pedido 14100" })).toBeVisible();
+  await expect(row.getByText("Processado", { exact: true })).toBeVisible();
+});
+
 test("celular: lista de pedidos sem rolagem horizontal", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/pedidos");

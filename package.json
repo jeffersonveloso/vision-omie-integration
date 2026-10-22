@@ -15,7 +15,8 @@
     "simulators": "tsx scripts/simulators/start.ts",
     "demo:seed": "tsx scripts/seed-demo.ts",
     "test:coverage": "vitest run --coverage",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "worker": "tsx --conditions=react-server scripts/worker.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.11",
@@ -23,6 +24,7 @@
     "@fontsource-variable/atkinson-hyperlegible-next": "^5.3.0",
     "@tanstack/react-query": "^5.104.5",
     "@tanstack/react-table": "^8.21.3",
+    "bullmq": "^5.81.5",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

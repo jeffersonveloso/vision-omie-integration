@@ -40,6 +40,8 @@ import * as collectionRoute from "@/app/api/sync/collection/route";
 import * as runRoute from "@/app/api/sync/run/route";
 import * as runLogsRoute from "@/app/api/sync/runs/[id]/route";
 import * as runsRoute from "@/app/api/sync/runs/route";
+import * as webhookEventsRoute from "@/app/api/webhooks/events/route";
+import * as webhookRetryRoute from "@/app/api/webhooks/events/retry/route";
 import * as webhookRoute from "@/app/api/webhooks/omie/route";
 import { type AppContainer, buildContainer } from "@/server/container";
 import { createTestDatabase } from "./support/test-database";
@@ -281,10 +283,25 @@ describe("API HTTP", () => {
     expect((await audit("?search=sync.collection.restart"))[0].actor).toBe("ana@ecolife.com.br");
   });
 
-  it("webhook do Omie exige o token", async () => {
+  it("webhook do Omie: exige o token, grava e enfileira, não duplica pelo messageId; fila e reprocessamento pela API", async () => {
     expect((await call(webhookRoute, "POST", "/api/webhooks/omie?token=errado", { body: {} })).status).toBe(401);
-    const ok = await call(webhookRoute, "POST", "/api/webhooks/omie?token=token-webhook-teste", { body: { topic: "VendaProduto.Faturada", event: { idPedido: 1 } } });
-    expect(ok.body.ok).toBe(true);
+    const order = (await call(ordersRoute, "GET", "/api/orders?search=14100")).body.items[0];
+    const omieId = (await call(orderRoute, "GET", "/x", { params: { id: order.id } })).body.order.documentsFull[0].omieId;
+    const payload = { messageId: "msg-api-1", topic: "VendaProduto.Faturada", appKey: COMPANIES.matriz.appKey, event: { idPedido: omieId } };
+    const first = await call(webhookRoute, "POST", "/api/webhooks/omie?token=token-webhook-teste", { body: payload });
+    expect(first.status).toBe(200);
+    expect(first.body).toMatchObject({ ok: true, duplicate: false, queued: true });
+    const again = await call(webhookRoute, "POST", "/api/webhooks/omie?token=token-webhook-teste", { body: payload });
+    expect(again.body).toMatchObject({ ok: true, duplicate: true, eventId: first.body.eventId });
+
+    await (app.webhookQueue as unknown as { idle(): Promise<void> }).idle();
+    const events = await call(webhookEventsRoute, "GET", "/api/webhooks/events?status=DONE");
+    expect(events.body.queue).toMatchObject({ mode: "memory", available: true, webhookEnabled: true });
+    expect(events.body.items).toEqual([expect.objectContaining({ id: first.body.eventId, visionOrderCode: 14100, topic: "VendaProduto.Faturada" })]);
+
+    const retried = await call(webhookRetryRoute, "POST", "/api/webhooks/events/retry", { headers: ANA, body: {} });
+    expect(retried.body).toEqual({ queued: 0 });
+    expect((await audit("?search=webhook.retry"))[0]).toMatchObject({ actor: "ana@ecolife.com.br", summary: "0 webhook(s) do Omie com falha recolocado(s) na fila." });
   });
 
   it("erro inesperado: 500 com o código da requisição, registrado no logger estruturado", async () => {

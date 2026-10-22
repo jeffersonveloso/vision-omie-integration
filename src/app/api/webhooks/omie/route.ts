@@ -2,9 +2,12 @@ import type { NextRequest } from "next/server";
 import { handler, json } from "@/server/infrastructure/http/route-handler";
 
 /**
- * Webhook do Omie (opcional). Configure no Developer Omie a URL
+ * Webhook do Omie. Configure no Developer Omie a URL
  * https://<sua-integração>/api/webhooks/omie?token=<OMIE_WEBHOOK_TOKEN>.
- * Responde 200 rápido (o Omie espera ≤ 7 s) e dispara a consulta do pedido em segundo plano.
+ *
+ * O Omie espera 2xx em até 7 s e entrega os eventos de cada aplicativo em fila: um POST lento ou com erro
+ * segura os seguintes. Por isso aqui só gravamos o evento e o colocamos na fila (Redis/BullMQ);
+ * o worker acha o pedido e consulta o Omie. Evento repetido (mesmo messageId) responde 200 sem duplicar.
  */
 export const POST = handler(async (request, c) => {
   const token = (request as NextRequest).nextUrl.searchParams.get("token");
@@ -12,9 +15,6 @@ export const POST = handler(async (request, c) => {
     return json({ error: { code: "UNAUTHORIZED", message: "Webhook desativado ou token inválido." } }, { status: 401 });
   }
   const payload = await request.json().catch(() => ({}));
-  const { relatedOrderId } = await c.useCases.webhook.execute(payload);
-  if (relatedOrderId) {
-    void c.useCases.reconcileOrder.execute({ orderId: relatedOrderId, runId: null }).catch((error) => c.logger.error("Falha no retorno disparado por webhook", { error: String(error) }));
-  }
-  return json({ ok: true, relatedOrderId });
+  const result = await c.useCases.receiveWebhook.execute(payload);
+  return json({ ok: true, ...result });
 });

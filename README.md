@@ -10,6 +10,8 @@ autorização, rejeição e cancelamento das notas, as baixas e os cancelamentos
   todas as chamadas feitas ao Vision e ao Omie (request/response).
 * **Reenvio manual:** de um pedido, dos selecionados ou de todos com a mesma causa.
 * **Sem duplicidade:** códigos de integração determinísticos e consulta antes de incluir.
+* **Webhooks do Omie em fila:** a rota grava o evento e responde na hora; um worker (Redis + BullMQ)
+  consulta o Omie e devolve ao Vision, com novas tentativas e reprocessamento pela tela.
 * **Mapeamento dinâmico:** regras de campo e tabelas de-para por conta, com listas carregadas do Omie
   (categorias, departamentos, projetos, contas correntes, produtos, serviços…).
 * **Várias bases Omie:** cadastro de contas com CNPJ, App Key, App Secret (criptografado) e ativação.
@@ -66,7 +68,7 @@ cp .env.example .env.local   # preencha; nunca versione este arquivo
 
 | Variável | Para quê |
 |---|---|
-| `DATABASE_URL` | PostgreSQL 14+ (`docker compose up -d` sobe um local). Vazio = PGlite. |
+| `DATABASE_URL` | PostgreSQL 14+ (`docker compose up -d` sobe PostgreSQL e Redis locais). Vazio = PGlite. |
 | `APP_ENCRYPTION_KEY` | 32 bytes em base64 para criptografar os App Secrets. **Obrigatória em produção** e não pode mudar depois do cadastro das contas. |
 | `APP_TIMEZONE` | Fuso das datas (padrão `America/Sao_Paulo`). |
 | `VISION_API_URL`, `VISION_USERNAME`, `VISION_PASSWORD` | ControllerAPI do Vision. |
@@ -75,6 +77,9 @@ cp .env.example .env.local   # preencha; nunca versione este arquivo
 | `SYNC_INITIAL_LOOKBACK_DAYS` | Dias que a primeira coleta busca para trás (padrão 7). Valor inicial: depois de salvar Configurações vale o da tela, e "Recomeçar a coleta" aplica de novo. |
 | `SCHEDULER_ENABLED` | Agendador interno (padrão `true`). |
 | `OMIE_WEBHOOK_TOKEN` | Ativa `/api/webhooks/omie?token=…` (opcional). |
+| `REDIS_URL` | Redis da fila de webhooks (BullMQ). Vazio = fila em memória, só para desenvolvimento. |
+| `REDIS_PREFIX` | Prefixo das chaves no Redis (padrão `vision-omie`). |
+| `WEBHOOK_WORKER_ENABLED` | Worker da fila no servidor web (padrão `true`). `false` + `npm run worker` para rodar à parte. |
 | `SLACK_WEBHOOK_URL` | Incoming Webhook do canal de alertas (segredo). Regras em Configurações › Alertas no Slack. |
 | `APP_BASE_URL` | Endereço público da aplicação, para os links nos alertas. |
 | `AUTH_USER_HEADER` | Cabeçalho com o usuário do proxy autenticado, gravado na auditoria (vazio = cabeçalhos comuns). |
@@ -104,6 +109,7 @@ Primeiros passos na aplicação:
 | `npm run test:e2e` | Testes das telas com Playwright (rode `npm run build` antes) |
 | `npm run typecheck` | Verificação de tipos |
 | `npm run simulators` | Simuladores do Vision e do Omie |
+| `npm run worker` | Worker da fila de webhooks em processo separado (requer `REDIS_URL`) |
 | `npm run demo:seed` | Dados de demonstração na aplicação em execução (`APP_URL`, padrão `http://localhost:3000`) |
 | `npm run db:generate` | Gera migração a partir de `schema.ts` |
 | `npm run db:migrate` | Aplica as migrações (também aplicadas ao iniciar) |
@@ -130,9 +136,10 @@ docs/                     Guia de implementação e referências das APIs
   respostas reais do Vision), agendador, rotas `/api` chamadas como requisições HTTP e o fluxo completo
   contra os simuladores. Backend e rotas acima de 85% das linhas; o CI falha abaixo do piso.
 * **PostgreSQL real:** com `TEST_DATABASE_URL`, cada arquivo de teste cria e apaga o próprio banco.
+* **Redis real:** com `TEST_REDIS_URL`, a fila de webhooks também é testada com BullMQ.
 * **Playwright** (`npm run build && npm run test:e2e`): sobe simuladores e aplicação e percorre painel,
   pedido com erro, simulação, reenvio, configurações, auditoria e a lista no celular.
-* **GitHub Actions** (`.github/workflows/ci.yml`): três jobs a cada push e pull request — tipos e
+* **GitHub Actions** (`.github/workflows/ci.yml`): três jobs a cada push e pull request (com PostgreSQL e Redis de verdade) — tipos e
   cobertura; testes no PostgreSQL 16; build e telas.
 
 ## Segurança e auditoria

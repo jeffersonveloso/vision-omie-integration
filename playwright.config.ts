@@ -44,6 +44,7 @@ export default defineConfig({
         OMIE_API_URL: "http://127.0.0.1:4020/api/v1",
         OMIE_READ_CACHE_MS: "0",
         SCHEDULER_ENABLED: "false",
+        OMIE_WEBHOOK_TOKEN: "token-e2e",
         NEXT_TELEMETRY_DISABLED: "1",
       },
     },

@@ -12,10 +12,12 @@ import { IntegrationScheduler } from "@/server/infrastructure/scheduler/integrat
 import { VisionApiClient } from "@/server/infrastructure/vision/vision-api-client";
 import { AccountRouter } from "@/server/modules/integration/application/account-router";
 import { CustomerSyncService } from "@/server/modules/integration/application/customer-sync";
-import type { OmieGatewayFactory, VisionGateway } from "@/server/modules/integration/application/ports";
+import type { OmieGatewayFactory, VisionGateway, WebhookQueue } from "@/server/modules/integration/application/ports";
 import { CollectVisionOrders } from "@/server/modules/integration/application/use-cases/collect-vision-orders";
 import { CollectionWindowService } from "@/server/modules/integration/application/collection-window";
-import { HandleOmieWebhook } from "@/server/modules/integration/application/use-cases/handle-omie-webhook";
+import { ProcessOmieWebhookEvent, ReceiveOmieWebhook, RetryWebhookEvents, SweepWebhookEvents } from "@/server/modules/integration/application/use-cases/omie-webhooks";
+import { BullMqWebhookQueue } from "@/server/infrastructure/queue/bullmq-webhook-queue";
+import { InMemoryWebhookQueue } from "@/server/infrastructure/queue/in-memory-webhook-queue";
 import { PurgeOldRecords } from "@/server/modules/integration/application/use-cases/purge-old-records";
 import { AuditService } from "@/server/modules/audit/application/audit-service";
 import type { AlertChannel } from "@/server/modules/alerts/application/alert-channel";
@@ -34,7 +36,7 @@ import {
   DrizzleIntegrationOrderRepository,
   DrizzleJobLock,
   DrizzleSyncRunRepository,
-  DrizzleWebhookEventStore,
+  DrizzleWebhookEventRepository,
 } from "@/server/modules/integration/infrastructure/drizzle-integration-repositories";
 import { DrizzleOrderQueryService } from "@/server/modules/integration/infrastructure/drizzle-order-query-service";
 import { MappingAdminService } from "@/server/modules/mappings/application/mapping-admin-service";
@@ -56,6 +58,8 @@ export interface ContainerOverrides {
   vision?: VisionGateway;
   omie?: OmieGatewayFactory;
   fetchImpl?: typeof fetch;
+  /** Fila de webhooks (testes podem trocar por uma fila controlada). */
+  webhookQueue?: WebhookQueue;
   /** Canal de alertas (testes usam um canal em memória no lugar do Slack). */
   alertChannel?: AlertChannel;
   appBaseUrl?: string;
@@ -93,7 +97,7 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   const checkpoints = new DrizzleCheckpointRepository(db);
   const customerLinks = new DrizzleCustomerLinkRepository(db);
   const jobLock = new DrizzleJobLock(db);
-  const webhookEvents = new DrizzleWebhookEventStore(db);
+  const webhookEvents = new DrizzleWebhookEventRepository(db);
   const audit = new AuditService(new DrizzleAuditRepository(db), ids, clock, logger);
   const queries = new DrizzleOrderQueryService(db, timeZone);
 
@@ -122,14 +126,27 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   const setIgnored = new SetOrderIgnored({ orders, logs, clock });
   const acknowledgeUpdate = new AcknowledgeVisionUpdate({ orders, clock });
   const preview = new PreviewOrderMapping({ orders, accounts, router, mappingContexts, vision, settings: settingsRepo, timeZone });
-  const webhook = new HandleOmieWebhook({ orders, events: webhookEvents, logs, ids, clock });
+  // Fila dos webhooks do Omie: Redis/BullMQ em produção, memória sem REDIS_URL.
+  const webhookQueue =
+    overrides.webhookQueue ??
+    (config.REDIS_URL
+      ? new BullMqWebhookQueue(config.REDIS_URL, { prefix: config.REDIS_PREFIX, attempts: 6, backoffMs: 15_000, concurrency: 2, logger })
+      : new InMemoryWebhookQueue({ attempts: 6, backoffMs: 15_000, logger }));
+  const receiveWebhook = new ReceiveOmieWebhook({ events: webhookEvents, queue: webhookQueue, ids, clock, logger });
+  const processWebhook = new ProcessOmieWebhookEvent({ events: webhookEvents, orders, accounts, reconcile: reconcileOrder, logs, clock });
+  const retryWebhooks = new RetryWebhookEvents({ events: webhookEvents, queue: webhookQueue, clock });
+  const sweepWebhooks = new SweepWebhookEvents({ events: webhookEvents, queue: webhookQueue, clock, logger });
+  /** Liga o worker da fila neste processo (no Next via instrumentation, ou no `npm run worker`). */
+  const startWebhookWorker = () => webhookQueue.startWorker((eventId, context) => processWebhook.execute(eventId, context));
+  // Na fila em memória o processamento só existe neste processo: o worker liga junto.
+  if (webhookQueue.mode === "memory") await startWebhookWorker();
 
   const alerts = new AlertService({ channel: overrides.alertChannel ?? new SlackWebhookChannel(config.SLACK_WEBHOOK_URL, overrides.fetchImpl), settings: settingsRepo, checkpoints, clock, logger, timeZone, appBaseUrl: overrides.appBaseUrl ?? config.APP_BASE_URL ?? null });
   const jobDeps = { orders, runs, lock: jobLock, settings: settingsRepo, ids, clock, logger, instanceId, notifier: alerts };
   const syncJob = new RunSyncJob({ ...jobDeps, collect, process: processOrder });
   const reconcileJob = new RunReconcileJob({ ...jobDeps, reconcile: reconcileOrder });
   const maintenance = new PurgeOldRecords({ logs, runs, webhooks: webhookEvents, audit, settings: settingsRepo, lock: jobLock, clock, logger, instanceId });
-  const scheduler = new IntegrationScheduler({ settings: settingsRepo, sync: syncJob, reconcile: reconcileJob, maintenance, logger, timeZone });
+  const scheduler = new IntegrationScheduler({ settings: settingsRepo, sync: syncJob, reconcile: reconcileJob, maintenance, webhookSweep: sweepWebhooks, logger, timeZone });
   settings.attachScheduler(scheduler);
 
   await mappingAdmin.ensureSystemMaps();
@@ -147,7 +164,10 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
     collectionWindow,
     audit,
     alerts,
-    useCases: { collect, processOrder, reconcileOrder, retryOrder, retryOrders, setIgnored, acknowledgeUpdate, preview, webhook, syncJob, reconcileJob, maintenance },
+    webhookQueue,
+    webhookEvents,
+    startWebhookWorker,
+    useCases: { collect, processOrder, reconcileOrder, retryOrder, retryOrders, setIgnored, acknowledgeUpdate, preview, receiveWebhook, processWebhook, retryWebhooks, sweepWebhooks, syncJob, reconcileJob, maintenance },
     scheduler,
   };
 }
