@@ -88,8 +88,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
-        timeout-minutes: 8
+      # Navegador em cache entre execuções; as dependências do sistema (apt) às vezes demoram: até 2 tentativas.
+      - uses: actions/cache@v6
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Instala o Chromium do Playwright
+        run: |
+          for i in 1 2; do
+            timeout 8m npx playwright install --with-deps chromium && exit 0
+            echo "Tentativa $i falhou; tentando de novo."
+          done
+          exit 1
+        timeout-minutes: 18
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"

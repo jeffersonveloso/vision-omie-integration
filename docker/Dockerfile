@@ -20,7 +20,8 @@ RUN --mount=type=cache,target=/root/.npm npm ci --no-audit --no-fund
 # ── Build: Next em modo standalone + scripts empacotados ─────────────────────────────────
 FROM deps AS build
 COPY . .
-RUN NEXT_OUTPUT=standalone npm run build && npm run build:scripts
+# `public` pode não existir no repositório (pasta vazia não vai para o git).
+RUN mkdir -p public && NEXT_OUTPUT=standalone npm run build && npm run build:scripts
 
 # ── Execução: só o servidor enxuto do Next, os scripts e as migrações ────────────────────
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
