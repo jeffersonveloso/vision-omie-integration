@@ -176,5 +176,7 @@ jobs:
           esc() { sed -e 's/%/%25/g' -e 's/\r/%0D/g' | sed ':a;N;$!ba;s/\n/%0A/g'; }
           [ -s build.log ] && echo "::error title=Build (final)::$(tail -n 40 build.log | esc)"
           echo "::error title=Contêineres::$($C ps -a --format '{{.Name}} {{.State}} {{.Status}}' | esc)"
-          [ -s compose.log ] && echo "::error title=Logs (final)::$(grep -v '^\s*$' compose.log | tail -n 40 | esc)"
+          for svc in worker app; do
+            echo "::error title=Logs de $svc::$($C logs --no-color --tail 30 $svc 2>&1 | esc)"
+          done
           true
