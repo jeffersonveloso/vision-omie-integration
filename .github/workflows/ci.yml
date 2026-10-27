@@ -121,9 +121,14 @@ jobs:
           OMIE_WEBHOOK_TOKEN=token-ci
           SCHEDULER_ENABLED=false
           VARS
-      - name: Constrói a imagem e sobe PostgreSQL, Redis, aplicação e worker
-        run: docker compose -f docker/compose.yaml --profile app up -d --build --wait
+      - name: Constrói a imagem
+        run: |
+          set -o pipefail
+          docker compose -f docker/compose.yaml --profile app build --progress plain 2>&1 | tee build.log
         timeout-minutes: 20
+      - name: Sobe PostgreSQL, Redis, aplicação e worker
+        run: docker compose -f docker/compose.yaml --profile app up -d --wait
+        timeout-minutes: 5
       - name: Aplicação, login, fila no worker e scripts da imagem
         run: |
           set -euo pipefail
@@ -151,4 +156,14 @@ jobs:
           docker image ls vision-omie-integration:local --format 'Imagem: {{.Size}}'
       - name: Logs dos contêineres
         if: failure()
-        run: docker compose -f docker/compose.yaml --profile app logs --no-color
+        run: |
+          C="docker compose -f docker/compose.yaml --profile app"
+          $C ps -a
+          $C logs --no-color > compose.log 2>&1 || true
+          cat compose.log
+          # Resumo também nas anotações do job (dá para ler sem baixar o log completo).
+          esc() { sed -e 's/%/%25/g' -e 's/\r/%0D/g' | sed ':a;N;$!ba;s/\n/%0A/g'; }
+          [ -s build.log ] && echo "::error title=Build (final)::$(tail -n 40 build.log | esc)"
+          echo "::error title=Contêineres::$($C ps -a --format '{{.Name}} {{.State}} {{.Status}}' | esc)"
+          [ -s compose.log ] && echo "::error title=Logs (final)::$(grep -v '^\s*$' compose.log | tail -n 40 | esc)"
+          true
