@@ -110,7 +110,7 @@ pública — e defina `APP_BASE_URL`.
 | Comando dentro do contêiner | Faz |
 |---|---|
 | `node server.js` | Servidor web (padrão da imagem) |
-| `node dist/worker.mjs` | Worker da fila dos webhooks (serviço `worker`; dá para escalar: `--scale worker=2`) |
+| `node dist/worker.mjs` | Worker da fila dos webhooks (serviço `worker`; dá para escalar: `--scale worker=2`). Saudável enquanto grava o batimento a cada 15 s, o que só acontece com o Redis respondendo. |
 | `node dist/migrate.mjs` | Migrações (a aplicação também aplica ao iniciar) |
 | `node dist/users-create.mjs --email … --name …` | Cria usuário ou redefine a senha (pede a senha ou lê `NEW_USER_PASSWORD`) |
 
