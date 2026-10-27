@@ -78,9 +78,13 @@ jobs:
 
   e2e:
     name: Build e telas (Playwright)
-    # Fixo em 24.04: o ubuntu-latest está migrando para o 26, ainda não suportado pelo Playwright 1.56.
     runs-on: ubuntu-24.04
     timeout-minutes: 25
+    # Imagem oficial do Playwright (mesma versão do package.json): Chromium e dependências do sistema já
+    # instalados — o `playwright install --with-deps` no runner travava no apt de vez em quando.
+    container:
+      image: mcr.microsoft.com/playwright:v1.56.0-noble
+      options: --ipc=host
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -88,19 +92,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      # Navegador em cache entre execuções; as dependências do sistema (apt) às vezes demoram: até 2 tentativas.
-      - uses: actions/cache@v6
-        with:
-          path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-      - name: Instala o Chromium do Playwright
-        run: |
-          for i in 1 2; do
-            timeout 8m npx playwright install --with-deps chromium && exit 0
-            echo "Tentativa $i falhou; tentando de novo."
-          done
-          exit 1
-        timeout-minutes: 18
       - run: npm run build
         env:
           NEXT_TELEMETRY_DISABLED: "1"
@@ -138,7 +129,10 @@ jobs:
           docker compose -f docker/compose.yaml --profile app build --progress plain 2>&1 | tee build.log
         timeout-minutes: 20
       - name: Sobe PostgreSQL, Redis, aplicação e worker
-        run: docker compose -f docker/compose.yaml --profile app up -d --wait
+        run: |
+          set -o pipefail
+          docker compose version
+          docker compose -f docker/compose.yaml --profile app up -d --wait 2>&1 | tee up.log
         timeout-minutes: 5
       - name: Aplicação, login, fila no worker e scripts da imagem
         run: |
@@ -175,6 +169,7 @@ jobs:
           # Resumo também nas anotações do job (dá para ler sem baixar o log completo).
           esc() { sed -e 's/%/%25/g' -e 's/\r/%0D/g' | sed ':a;N;$!ba;s/\n/%0A/g'; }
           [ -s build.log ] && echo "::error title=Build (final)::$(tail -n 40 build.log | esc)"
+          [ -s up.log ] && echo "::error title=Subida::$(tail -n 20 up.log | esc)"
           echo "::error title=Contêineres::$($C ps -a --format '{{.Name}} {{.State}} {{.Status}}' | esc)"
           for svc in worker app; do
             echo "::error title=Logs de $svc::$($C logs --no-color --tail 30 $svc 2>&1 | esc)"

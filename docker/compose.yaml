@@ -97,9 +97,13 @@ services:
       # A aplicação aplica as migrações ao iniciar; o worker espera por ela.
       app:
         condition: service_healthy
-    # O healthcheck da imagem é do servidor web.
+    # Saudável enquanto o worker grava o batimento (a cada 15 s, só se o Redis responde).
     healthcheck:
-      disable: true
+      test: ["CMD", "node", "-e", "const f=require('path').join(require('os').tmpdir(),'vision-omie-worker.heartbeat');process.exit(Date.now()-require('fs').statSync(f).mtimeMs<60000?0:1)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
 volumes:
   pgdata:
