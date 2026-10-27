@@ -47,3 +47,12 @@ next-env.d.ts
 # Playwright
 /playwright-report/
 /test-results/
+
+# Sessão gravada pelos testes de tela
+/e2e/.auth/
+
+# Scripts empacotados para a imagem Docker
+/dist/
+
+# Variáveis da aplicação no Docker (modelo em docker/app.env.example)
+docker/app.env

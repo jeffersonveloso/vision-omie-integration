@@ -6,13 +6,33 @@
  *   npm run simulators          # em um terminal
  *   npm run dev                 # em outro (com o .env.local apontando para os simuladores)
  *   npm run demo:seed           # configura e sincroniza
+ *
+ * Com o login próprio (AUTH_MODE=local, o padrão) usa o token de API: AUTH_API_TOKEN no ambiente ou no
+ * .env.local (o mesmo valor que a aplicação usa).
  */
+import { existsSync, readFileSync } from "node:fs";
 import { COMPANIES } from "./simulators/fixtures";
 
 const BASE = process.env.APP_URL ?? "http://localhost:3000";
 
+/** AUTH_API_TOKEN do ambiente ou, se não houver, do .env.local (sem carregar o resto do arquivo). */
+function apiToken(): string | undefined {
+  if (process.env.AUTH_API_TOKEN?.trim()) return process.env.AUTH_API_TOKEN.trim();
+  if (!existsSync(".env.local")) return undefined;
+  const line = readFileSync(".env.local", "utf8")
+    .split(/\r?\n/)
+    .find((l) => /^\s*AUTH_API_TOKEN\s*=/.test(l));
+  return line?.split("=").slice(1).join("=").trim().replace(/^["']|["']$/g, "") || undefined;
+}
+
+const TOKEN = apiToken();
+
 async function call<T = Record<string, unknown>>(method: string, path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${BASE}${path}`, { method, headers: body ? { "Content-Type": "application/json" } : undefined, body: body ? JSON.stringify(body) : undefined });
+  const headers: Record<string, string> = {};
+  if (body) headers["Content-Type"] = "application/json";
+  if (TOKEN) headers.Authorization = `Bearer ${TOKEN}`;
+  const response = await fetch(`${BASE}${path}`, { method, headers, body: body ? JSON.stringify(body) : undefined });
+  if (response.status === 401) throw new Error("A aplicação pediu login: defina AUTH_API_TOKEN (32+ caracteres) na aplicação e aqui (ambiente ou .env.local).");
   const data = await response.json();
   if (!response.ok) throw new Error(`${method} ${path} → ${response.status}: ${JSON.stringify(data)}`);
   return data as T;

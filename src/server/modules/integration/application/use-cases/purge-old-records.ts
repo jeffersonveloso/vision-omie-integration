@@ -11,6 +11,7 @@ export interface PurgeResult {
   runs: number;
   webhooks: number;
   audit: number;
+  sessions: number;
 }
 
 /**
@@ -24,6 +25,8 @@ export class PurgeOldRecords {
       runs: SyncRunRepository;
       webhooks: Pick<WebhookEventRepository, "purgeBefore">;
       audit: AuditService;
+      /** Sessões do login vencidas (opcional: não existe com AUTH_MODE=proxy). */
+      sessions?: { purgeExpiredSessions(): Promise<number> };
       settings: SettingsRepository;
       lock: JobLock;
       clock: Clock;
@@ -33,7 +36,7 @@ export class PurgeOldRecords {
   ) {}
 
   async execute(): Promise<PurgeResult | null> {
-    const { logs, runs, webhooks, audit, settings: settingsRepo, lock, clock, logger, instanceId } = this.deps;
+    const { logs, runs, webhooks, audit, sessions, settings: settingsRepo, lock, clock, logger, instanceId } = this.deps;
     if (!(await lock.tryAcquire("maintenance", instanceId, 30 * 60_000))) return null;
     try {
       const { logs: retention } = await settingsRepo.get();
@@ -43,6 +46,7 @@ export class PurgeOldRecords {
         runs: await runs.purgeBefore(addDays(now, -retention.errorRetentionDays)),
         webhooks: await webhooks.purgeBefore(addDays(now, -retention.retentionDays)),
         audit: await audit.purgeBefore(addDays(now, -retention.auditRetentionDays)),
+        sessions: (await sessions?.purgeExpiredSessions()) ?? 0,
       };
       const total = result.logs + result.runs + result.webhooks + result.audit;
       logger.info("Limpeza de registros antigos concluída", { ...result });

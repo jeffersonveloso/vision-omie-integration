@@ -39,6 +39,25 @@ const schema = z.object({
    */
   AUTH_USER_HEADER: z.string().optional().transform((v) => (v?.trim() ? v.trim().toLowerCase() : undefined)),
   OMIE_WEBHOOK_TOKEN: z.string().optional(),
+  /**
+   * Quem identifica os usuários: `local` (padrão) = login da própria aplicação, com usuários e senhas;
+   * `proxy` = um proxy autenticado na frente (oauth2-proxy, Cloudflare Access) e a aplicação confia nele.
+   */
+  AUTH_MODE: z
+    .string()
+    .optional()
+    .transform((v) => (v?.trim().toLowerCase() === "proxy" ? ("proxy" as const) : ("local" as const))),
+  /** Primeiro administrador, criado só quando ainda não existe nenhum usuário. */
+  AUTH_ADMIN_EMAIL: z.string().optional().transform((v) => (v?.trim() ? v.trim() : undefined)),
+  AUTH_ADMIN_PASSWORD: z.string().optional().transform((v) => (v ? v : undefined)),
+  AUTH_ADMIN_NAME: z.string().optional().transform((v) => (v?.trim() ? v.trim() : undefined)),
+  /** Token para scripts e cron externo (`Authorization: Bearer ...`). Mínimo de 32 caracteres. */
+  AUTH_API_TOKEN: z.string().optional().transform((v) => (v?.trim() ? v.trim() : undefined)),
+  /** Sessão expira depois deste tempo sem uso (horas) e, mesmo em uso, depois do limite (dias). */
+  AUTH_SESSION_IDLE_HOURS: z.coerce.number().min(1).max(24 * 30).optional().default(12),
+  AUTH_SESSION_MAX_DAYS: z.coerce.number().min(1).max(90).optional().default(7),
+  /** Cookie só por HTTPS. Vazio = automático (HTTPS direto ou X-Forwarded-Proto: https). */
+  AUTH_COOKIE_SECURE: boolish,
 });
 
 export type AppEnv = z.infer<typeof schema>;

@@ -2,8 +2,10 @@
  * Rotas /api ponta a ponta: chama os route handlers do Next com requisições reais (NextRequest),
  * o mesmo container dos testes de fluxo (simuladores HTTP + PGlite em memória) e um canal de alertas em memória.
  * Cobre contrato HTTP (status, erros 404/409/422/500, x-request-id), auditoria com autor, alertas e retenção.
+ * Roda com AUTH_MODE=proxy (o autor vem do cabeçalho do proxy); o login próprio está em auth.test.ts.
  */
 process.env.OMIE_WEBHOOK_TOKEN = "token-webhook-teste";
+process.env.AUTH_MODE = "proxy";
 
 import { NextRequest } from "next/server";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -320,6 +322,26 @@ describe("API HTTP", () => {
     } finally {
       app.queries.list = original;
       spy.mockRestore();
+    }
+  });
+
+  it("erro de domínio vindo de outro bundle (sem instanceof) mantém o status certo", async () => {
+    const original = app.queries.list;
+    // No build do Next o container vem do instrumentation: a classe do erro é outra cópia, com o mesmo nome.
+    app.queries.list = async () => {
+      throw Object.assign(new Error("Pedido não encontrado(a): 1"), { name: "NotFoundError", code: "NOT_FOUND" });
+    };
+    try {
+      const response = await call(ordersRoute, "GET", "/api/orders");
+      expect(response.status).toBe(404);
+      expect(response.body.error).toEqual({ code: "NOT_FOUND", message: "Pedido não encontrado(a): 1" });
+      app.queries.list = async () => {
+        throw Object.assign(new Error("Bloqueado"), { name: "TooManyRequestsError", code: "TOO_MANY_ATTEMPTS", retryAfterSeconds: 60 });
+      };
+      const limited = await call(ordersRoute, "GET", "/api/orders");
+      expect([limited.status, limited.headers.get("retry-after")]).toEqual([429, "60"]);
+    } finally {
+      app.queries.list = original;
     }
   });
 

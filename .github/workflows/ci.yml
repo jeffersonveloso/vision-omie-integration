@@ -31,8 +31,8 @@ jobs:
       # Testes da fila de webhooks com BullMQ num Redis de verdade.
       TEST_REDIS_URL: redis://localhost:6379
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -40,7 +40,7 @@ jobs:
       - run: npm run typecheck
       # Falha se a cobertura do backend e das rotas /api cair abaixo do piso em vitest.config.mts.
       - run: npm run test:coverage
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: cobertura
@@ -57,12 +57,12 @@ jobs:
       TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres
       TEST_REDIS_URL: redis://localhost:6379
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # As mesmas dependências da etapa de testes: se o compose quebrar, o CI quebra junto.
       - name: Sobe PostgreSQL e Redis
         run: docker compose -f docker/compose.yaml up -d --wait
         timeout-minutes: 5
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -82,8 +82,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -96,7 +96,7 @@ jobs:
       - run: npm run test:e2e
         env:
           CI: "true"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: playwright-report
@@ -104,3 +104,51 @@ jobs:
             playwright-report/
             test-results/
           retention-days: 7
+
+  docker:
+    name: Imagem Docker (aplicação e worker)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Variáveis da aplicação (só para este teste)
+        run: |
+          cat > docker/app.env <<VARS
+          APP_ENCRYPTION_KEY=$(openssl rand -base64 32)
+          AUTH_ADMIN_EMAIL=admin@ci.test
+          AUTH_ADMIN_PASSWORD=girassol-azul-2026
+          AUTH_API_TOKEN=token-ci-com-mais-de-trinta-e-dois-caracteres
+          OMIE_WEBHOOK_TOKEN=token-ci
+          SCHEDULER_ENABLED=false
+          VARS
+      - name: Constrói a imagem e sobe PostgreSQL, Redis, aplicação e worker
+        run: docker compose -f docker/compose.yaml --profile app up -d --build --wait
+        timeout-minutes: 20
+      - name: Aplicação, login, fila no worker e scripts da imagem
+        run: |
+          set -euo pipefail
+          BASE=http://127.0.0.1:3000
+          AUTH="authorization: Bearer token-ci-com-mais-de-trinta-e-dois-caracteres"
+          curl -fsS $BASE/api/health | jq -e '.ok == true and .database == "postgres"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' $BASE/api/orders)" = 401
+          test "$(curl -s -o /dev/null -w '%{http_code}' $BASE/pedidos)" = 307
+          curl -fsS -c cookies.txt -H 'content-type: application/json' -d '{"email":"admin@ci.test","password":"girassol-azul-2026"}' $BASE/api/auth/login | jq -e '.user.role == "ADMIN"'
+          curl -fsS -b cookies.txt $BASE/api/orders | jq -e '.total == 0'
+          # Webhook: o servidor web só enfileira; quem processa é o contêiner do worker.
+          ID=$(curl -fsS -H 'content-type: application/json' -d '{"messageId":"ci-1","topic":"VendaProduto.Faturada","event":{"idPedido":1}}' "$BASE/api/webhooks/omie?token=token-ci" | jq -r '.eventId')
+          for i in $(seq 1 30); do
+            STATUS=$(curl -fsS -H "$AUTH" "$BASE/api/webhooks/events" | jq -r --arg id "$ID" '.items[] | select(.id == $id) | .status')
+            [ "$STATUS" = IGNORED ] && break
+            sleep 1
+          done
+          test "$STATUS" = IGNORED
+          curl -fsS -H "$AUTH" $BASE/api/webhooks/events | jq -e '.queue.mode == "redis" and .queue.available'
+          docker compose -f docker/compose.yaml --profile app logs worker > worker.log
+          grep -q "Worker da fila de webhooks iniciado" worker.log
+          docker compose -f docker/compose.yaml --profile app exec -T -e NEW_USER_PASSWORD=jabuticaba-madura-9 app node dist/users-create.mjs --email ops@ci.test --name Ops --role OPERATOR
+          docker compose -f docker/compose.yaml --profile app exec -T app node dist/migrate.mjs
+          curl -fsS -H 'content-type: application/json' -d '{"email":"ops@ci.test","password":"jabuticaba-madura-9"}' $BASE/api/auth/login | jq -e '.user.role == "OPERATOR"'
+          docker image ls vision-omie-integration:local --format 'Imagem: {{.Size}}'
+      - name: Logs dos contêineres
+        if: failure()
+        run: docker compose -f docker/compose.yaml --profile app logs --no-color

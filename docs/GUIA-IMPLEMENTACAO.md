@@ -117,7 +117,10 @@ src/
    │  ├─ omie-accounts/      Contas Omie (CNPJ, credenciais criptografadas, teste de conexão, listas)
    │  ├─ mappings/           Regras de campo, tabelas de-para, catálogo de campos, MappingEngine
    │  ├─ integration/        Agregado do pedido, documentos Omie, casos de uso, consultas (CQRS-lite)
-   │  └─ settings/           Parâmetros operacionais
+   │  ├─ settings/           Parâmetros operacionais
+   │  ├─ identity/           Usuários, sessões e senhas do login próprio
+   │  ├─ audit/              Quem fez o quê
+   │  └─ alerts/             Alertas no Slack
    ├─ infrastructure/        Vision, Omie, banco, agendador, HTTP
    └─ container.ts           Composition root (único lugar que conhece as implementações)
 ```
@@ -246,6 +249,21 @@ flowchart LR
 * **Redis em produção:** com persistência (AOF) e `maxmemory-policy noeviction` — o `docker/compose.yaml`
   já sobe assim. No NestJS a mesma fila vira um `@Processor` do `@nestjs/bullmq`.
 
+### Login e usuários
+
+| O quê | Como |
+|---|---|
+| Perfis | **Administrador** (tudo, inclusive *Usuários*) e **Operador** (todo o resto). |
+| Primeiro acesso | `AUTH_ADMIN_EMAIL`/`AUTH_ADMIN_PASSWORD` criam o primeiro administrador se não houver usuários; ou `npm run users:create` (também redefine a senha de quem perdeu o acesso). |
+| Cadastro | *Usuários › Novo usuário*: a aplicação gera uma senha temporária, mostrada uma vez; a pessoa troca no primeiro acesso (a API recusa o resto até a troca). |
+| Senha | Hash scrypt; mínimo de 10 caracteres, sem o próprio e-mail. |
+| Tentativas erradas | 5 seguidas bloqueiam 15 min (também para e-mail inexistente). *Gerar senha temporária* desbloqueia. Tudo vai para a auditoria. |
+| Sessão | Cookie `httpOnly`, `SameSite=Lax`, `Secure` em HTTPS; no banco só o SHA-256 do token. Expira em 12 h sem uso e 7 dias no total. Desativar, trocar ou redefinir a senha encerra as sessões. |
+| Proteção das rotas | Toda rota `/api` exige login (exceto login, `health` e webhook do Omie, que tem token próprio); `proxy.ts` manda quem está sem sessão para `/login`; alteração vinda de outro site é recusada. |
+| Scripts e cron | `Authorization: Bearer <AUTH_API_TOKEN>` (32+ caracteres); não acessa o cadastro de usuários. |
+
+No NestJS o mesmo módulo (`server/modules/identity`) vira um guard global com as mesmas regras.
+
 ### Logs, auditoria e alertas
 
 | O quê | Onde | Retenção padrão |
@@ -257,8 +275,8 @@ flowchart LR
 
 * **Correlação:** toda resposta da API traz `x-request-id` (ou reaproveita o recebido). Erro inesperado
   devolve só esse código ao usuário; a mensagem técnica e a pilha vão para o log estruturado.
-* **Autor:** vem do cabeçalho do proxy autenticado (`AUTH_USER_HEADER`, ou X-Forwarded-Email,
-  X-Auth-Request-Email, Remote-User...). Sem proxy, aparece "Não identificado".
+* **Autor:** o e-mail do usuário logado (login próprio) ou "token de API". Com `AUTH_MODE=proxy`, o
+  usuário do cabeçalho do proxy (`AUTH_USER_HEADER`, ou X-Forwarded-Email, Remote-User...).
 * **Retenção:** *Configurações › Retenção de logs*; limpeza diária às 03:17. O erro atual de cada pedido
   fica no próprio pedido, então a limpeza não esconde pendências.
 * **Alertas no Slack** (*Configurações › Alertas no Slack*, webhook em `SLACK_WEBHOOK_URL`):
@@ -335,7 +353,7 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 | 2. Fundação | Projeto, persistência, configuração, logs, processamento | Concluída |
 | 3. Vision → Omie | Coleta incremental, pedido completo, clientes, roteamento, PV e OS | Concluída |
 | 4. Omie → Vision | Eventos fiscais, títulos, baixas, cancelamentos | Concluída |
-| 5. Resiliência e testes | Idempotência, retries, testes, exceções | Concluída: 121 testes (≈90% das linhas do backend e das rotas), PostgreSQL e Redis reais, 7 testes de tela e CI |
+| 5. Resiliência e testes | Idempotência, retries, testes, exceções, login e implantação | Concluída: 137 testes (≈91% das linhas do backend e das rotas), PostgreSQL e Redis reais, 10 testes de tela, login próprio com usuários, imagem Docker (aplicação + worker) e CI |
 | 6. Homologação | Testes ponta a ponta reais, correções, documentação, implantação | Próximo passo |
 
 ### Checklist de homologação (critérios de aceite da proposta)
@@ -361,11 +379,16 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 * **Etapa de testes (homologação):** `npm run deps:up` sobe o PostgreSQL 17 e o Redis 7.4 de
   `docker/compose.yaml`; aponte `DATABASE_URL` e `REDIS_URL` para eles (endereços no README). O CI usa o
   mesmo arquivo, então ele é validado a cada push.
-* **Produção:** `DATABASE_URL` (PostgreSQL 14+), `APP_ENCRYPTION_KEY`, credenciais do Vision.
-  `npm run build && npm start`. Migrações aplicadas automaticamente na inicialização.
+* **Produção:** `DATABASE_URL` (PostgreSQL 14+), `APP_ENCRYPTION_KEY`, credenciais do Vision e o
+  primeiro administrador (`AUTH_ADMIN_EMAIL`/`AUTH_ADMIN_PASSWORD`). `npm run build && npm start`, ou a
+  imagem Docker (abaixo). Migrações aplicadas automaticamente na inicialização.
+* **Docker:** `docker/Dockerfile` gera uma imagem com o servidor web (`node server.js`) e o worker
+  (`node dist/worker.mjs`); `npm run app:up` sobe PostgreSQL, Redis, aplicação e worker pelo perfil `app`
+  de `docker/compose.yaml`, com as variáveis em `docker/app.env`. Na frente, um proxy com HTTPS.
 * **Mais de uma instância:** a trava em banco (`job_locks`) impede rotinas simultâneas, e cada pedido é
   reservado durante o processamento. Alternativa: `SCHEDULER_ENABLED=false` e um cron externo chamando
-  `POST /api/sync/run` (`{"job":"SYNC"}` ou `{"job":"RECONCILE"}`).
+  `POST /api/sync/run` (`{"job":"SYNC"}` ou `{"job":"RECONCILE"}`) com `Authorization: Bearer
+  <AUTH_API_TOKEN>`.
 * **Webhook do Omie (opcional):** `OMIE_WEBHOOK_TOKEN` e cadastrar
   `https://<host>/api/webhooks/omie?token=...` no Developer Omie. O webhook só antecipa a consulta; a
   fonte de verdade continua sendo a API. Em produção, defina `REDIS_URL` (fila durável) — veja a seção
@@ -376,8 +399,8 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
   URL em `SLACK_WEBHOOK_URL` e o endereço da aplicação em `APP_BASE_URL`; ligue em *Configurações ›
   Alertas no Slack* e use **Enviar mensagem de teste**.
 * **Segurança:** App Secret criptografado (AES-256-GCM), nunca devolvido pela API nem gravado em log.
-  A interface ainda não tem login — publique atrás de um proxy autenticado (o usuário dele vai para a
-  auditoria) até o backend NestJS com autenticação.
+* **Login:** próprio por padrão (`AUTH_MODE=local`) — veja a seção *Login e usuários*. Com
+  `AUTH_MODE=proxy`, um proxy autenticado na frente identifica o usuário.
 * **Qualidade:** `npm run test:coverage` (piso de cobertura), `TEST_DATABASE_URL=… npx vitest run tests`
   (PostgreSQL real) e `npm run build && npm run test:e2e` (telas). O GitHub Actions roda os três a cada
-  push e pull request.
+  push e pull request, e também constrói a imagem Docker e confere aplicação e worker rodando.

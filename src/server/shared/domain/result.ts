@@ -52,3 +52,47 @@ export class ConflictError extends DomainError {
     this.name = "ConflictError";
   }
 }
+
+/** Sem identificação válida (sessão ausente, expirada ou credenciais erradas): HTTP 401. */
+export class UnauthorizedError extends DomainError {
+  constructor(message = "Faça login para continuar.", code = "UNAUTHENTICATED") {
+    super(code, message);
+    this.name = "UnauthorizedError";
+  }
+}
+
+/** Identificado, mas sem permissão para a ação: HTTP 403. */
+export class ForbiddenError extends DomainError {
+  constructor(message = "Você não tem permissão para esta ação.", code = "FORBIDDEN") {
+    super(code, message);
+    this.name = "ForbiddenError";
+  }
+}
+
+/** Tentativas demais (ex.: login bloqueado por senha errada repetida): HTTP 429. */
+export class TooManyRequestsError extends DomainError {
+  constructor(
+    message: string,
+    readonly retryAfterSeconds: number,
+  ) {
+    super("TOO_MANY_ATTEMPTS", message, { retryAfterSeconds });
+    this.name = "TooManyRequestsError";
+  }
+}
+
+const DOMAIN_ERROR_NAMES = new Set(["DomainError", "ValidationError", "NotFoundError", "ConflictError", "UnauthorizedError", "ForbiddenError", "TooManyRequestsError"]);
+
+/**
+ * Reconhece um erro de domínio pelo nome, não só por `instanceof`. No build do Next o container nasce no
+ * `instrumentation` (outro bundle, outra cópia destas classes), então um NotFoundError lançado por um
+ * serviço não é `instanceof` do NotFoundError importado pela rota.
+ */
+export function domainErrorName(error: unknown): string | null {
+  if (!(error instanceof Error) || typeof (error as { code?: unknown }).code !== "string") return null;
+  if (error instanceof DomainError) return error.name;
+  return DOMAIN_ERROR_NAMES.has(error.name) ? error.name : null;
+}
+
+export function isDomainError(error: unknown): error is DomainError {
+  return domainErrorName(error) !== null;
+}

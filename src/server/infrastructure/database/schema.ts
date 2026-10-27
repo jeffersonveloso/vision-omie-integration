@@ -270,3 +270,38 @@ export const auditEvents = pgTable(
   },
   (t) => [index("audit_events_at_idx").on(t.at), index("audit_events_entity_idx").on(t.entityType, t.entityId)],
 );
+
+/** Usuários do login próprio (AUTH_MODE=local). A senha é gravada só como hash scrypt. */
+export const users = pgTable("users", {
+  id: uuid("id").primaryKey(),
+  email: text("email").notNull().unique(),
+  name: text("name").notNull(),
+  role: text("role").notNull(),
+  active: boolean("active").notNull().default(true),
+  passwordHash: text("password_hash").notNull(),
+  mustChangePassword: boolean("must_change_password").notNull().default(false),
+  failedLogins: integer("failed_logins").notNull().default(0),
+  lockedUntil: ts("locked_until"),
+  lastLoginAt: ts("last_login_at"),
+  passwordChangedAt: ts("password_changed_at").notNull(),
+  createdAt: ts("created_at").notNull(),
+  updatedAt: ts("updated_at").notNull(),
+});
+
+/** Sessões do login próprio. O cookie leva o token; aqui fica só o SHA-256 dele. */
+export const sessions = pgTable(
+  "sessions",
+  {
+    id: uuid("id").primaryKey(),
+    tokenHash: text("token_hash").notNull().unique(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: ts("created_at").notNull(),
+    lastSeenAt: ts("last_seen_at").notNull(),
+    expiresAt: ts("expires_at").notNull(),
+    ip: text("ip"),
+    userAgent: text("user_agent"),
+  },
+  (t) => [index("sessions_user_idx").on(t.userId), index("sessions_expires_idx").on(t.expiresAt)],
+);

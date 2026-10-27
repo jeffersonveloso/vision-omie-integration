@@ -44,10 +44,14 @@ VISION_USERNAME=OMIE
 VISION_PASSWORD=simulador
 OMIE_API_URL=http://127.0.0.1:4020/api/v1
 OMIE_READ_CACHE_MS=0
+# Login: primeiro administrador e token que o demo:seed usa
+AUTH_ADMIN_EMAIL=admin@ecolife.local
+AUTH_ADMIN_PASSWORD=troque-esta-senha
+AUTH_API_TOKEN=um-token-qualquer-com-32-caracteres-ou-mais
 ```
 
 ```bash
-npm run dev                 # http://localhost:3000
+npm run dev                 # http://localhost:3000 — entre com AUTH_ADMIN_EMAIL / AUTH_ADMIN_PASSWORD
 npm run demo:seed           # cadastra 2 contas, regras e de-para e roda coleta + retorno
 ```
 
@@ -88,6 +92,31 @@ da aplicação.
 * As portas abrem só em `127.0.0.1`, para a aplicação na mesma máquina.
 * O CI sobe as dependências por esse mesmo arquivo.
 
+## Aplicação em Docker
+
+`docker/Dockerfile` gera uma imagem só (Next em modo *standalone*, ~100 MB de aplicação) que roda o
+servidor web e, com outro comando, o worker da fila. O perfil `app` do compose sobe tudo: PostgreSQL,
+Redis, aplicação e worker.
+
+```bash
+cp docker/app.env.example docker/app.env   # preencha: chave, Vision, primeiro administrador...
+npm run app:up                             # constrói a imagem e espera tudo ficar saudável
+```
+
+A aplicação responde em `http://127.0.0.1:3000` (`APP_PORT` e `APP_BIND` em `docker/.env`). Em
+servidor, publique por um proxy com HTTPS (Nginx, Caddy, Traefik) — o webhook do Omie precisa de uma URL
+pública — e defina `APP_BASE_URL`.
+
+| Comando dentro do contêiner | Faz |
+|---|---|
+| `node server.js` | Servidor web (padrão da imagem) |
+| `node dist/worker.mjs` | Worker da fila dos webhooks (serviço `worker`; dá para escalar: `--scale worker=2`) |
+| `node dist/migrate.mjs` | Migrações (a aplicação também aplica ao iniciar) |
+| `node dist/users-create.mjs --email … --name …` | Cria usuário ou redefine a senha (pede a senha ou lê `NEW_USER_PASSWORD`) |
+
+Exemplo: `docker compose -f docker/compose.yaml --profile app exec app node dist/users-create.mjs --email ana@ecolife.com.br --name "Ana Souza"`.
+O CI constrói a imagem, sobe os quatro serviços e confere login, fila no worker e os scripts a cada push.
+
 Os simuladores respondem no mesmo formato da ControllerAPI real (PascalCase, envelope paginado, pedido
 sem CNPJ da empresa) e trazem 8 pedidos: produtos, serviços, misto (PV + OS), produto sem de-para (erro
 de mapeamento), empresa sem conta Omie (erro de roteamento), NF rejeitada, pedido com baixa de parcela e
@@ -116,7 +145,12 @@ cp .env.example .env.local   # preencha; nunca versione este arquivo
 | `WEBHOOK_WORKER_ENABLED` | Worker da fila no servidor web (padrão `true`). `false` + `npm run worker` para rodar à parte. |
 | `SLACK_WEBHOOK_URL` | Incoming Webhook do canal de alertas (segredo). Regras em Configurações › Alertas no Slack. |
 | `APP_BASE_URL` | Endereço público da aplicação, para os links nos alertas. |
-| `AUTH_USER_HEADER` | Cabeçalho com o usuário do proxy autenticado, gravado na auditoria (vazio = cabeçalhos comuns). |
+| `AUTH_MODE` | `local` (padrão): login da própria aplicação. `proxy`: quem autentica é um proxy na frente (oauth2-proxy, Cloudflare Access). |
+| `AUTH_ADMIN_EMAIL`, `AUTH_ADMIN_PASSWORD`, `AUTH_ADMIN_NAME` | Primeiro administrador, criado no início só se ainda não houver usuários. Depois são ignoradas. |
+| `AUTH_API_TOKEN` | Token (32+ caracteres) para cron externo e scripts: `Authorization: Bearer …`. Não cadastra usuários. |
+| `AUTH_SESSION_IDLE_HOURS`, `AUTH_SESSION_MAX_DAYS` | Sessão expira sem uso (padrão 12 h) e, mesmo em uso, no limite (padrão 7 dias). |
+| `AUTH_COOKIE_SECURE` | Cookie só em HTTPS. Vazio = automático (HTTPS direto ou `X-Forwarded-Proto: https`). |
+| `AUTH_USER_HEADER` | Só com `AUTH_MODE=proxy`: cabeçalho com o usuário do proxy, gravado na auditoria (vazio = cabeçalhos comuns). |
 
 ```bash
 npm run build && npm start
@@ -124,6 +158,9 @@ npm run build && npm start
 
 Primeiros passos na aplicação:
 
+0. **Entrar** — com `AUTH_ADMIN_EMAIL` e `AUTH_ADMIN_PASSWORD` (ou um usuário criado com
+   `npm run users:create`). Em *Usuários*, cadastre a equipe: cada pessoa recebe uma senha temporária e
+   escolhe a própria no primeiro acesso.
 1. **Configurações** — teste a conexão com o Vision, confira a janela da primeira coleta (7 dias), defina
    as situações elegíveis, as **condições de pagamento** (por forma de pagamento do Vision e a padrão para
    pedidos sem parcelas) e as convenções do retorno (veja os pontos a validar no guia, seção 8).
@@ -145,6 +182,9 @@ Primeiros passos na aplicação:
 | `npm run simulators` | Simuladores do Vision e do Omie |
 | `npm run worker` | Worker da fila de webhooks em processo separado (requer `REDIS_URL`) |
 | `npm run deps:up` / `deps:down` | Sobe / para o PostgreSQL e o Redis de `docker/compose.yaml` |
+| `npm run app:up` / `app:down` | Sobe / para a aplicação inteira em contêineres (perfil `app`) |
+| `npm run users:create -- --email … --name … [--role ADMIN\|OPERATOR]` | Cria usuário ou redefine a senha pelo terminal |
+| `npm run build:scripts` | Empacota worker, migrações e cadastro de usuário em `dist/` (usado pela imagem) |
 | `npm run demo:seed` | Dados de demonstração na aplicação em execução (`APP_URL`, padrão `http://localhost:3000`) |
 | `npm run db:generate` | Gera migração a partir de `schema.ts` |
 | `npm run db:migrate` | Aplica as migrações (também aplicadas ao iniciar) |
@@ -161,7 +201,7 @@ src/server/container.ts   Composition root
 scripts/                  Simuladores, seed de demonstração, migração
 tests/                    Testes ponta a ponta e das rotas /api
 e2e/                      Testes das telas (Playwright)
-docker/                   Compose do PostgreSQL e do Redis (etapa de testes)
+docker/                   Dockerfile e compose (PostgreSQL, Redis, aplicação e worker)
 .github/workflows/        CI: tipos, testes com cobertura, PostgreSQL real e telas
 docs/                     Guia de implementação e referências das APIs
 ```
@@ -173,16 +213,35 @@ docs/                     Guia de implementação e referências das APIs
   contra os simuladores. Backend e rotas acima de 85% das linhas; o CI falha abaixo do piso.
 * **PostgreSQL real:** com `TEST_DATABASE_URL`, cada arquivo de teste cria e apaga o próprio banco.
 * **Redis real:** com `TEST_REDIS_URL`, a fila de webhooks também é testada com BullMQ.
-* **Playwright** (`npm run build && npm run test:e2e`): sobe simuladores e aplicação e percorre painel,
-  pedido com erro, simulação, reenvio, configurações, auditoria e a lista no celular.
-* **GitHub Actions** (`.github/workflows/ci.yml`): três jobs a cada push e pull request — tipos e
+* **Playwright** (`npm run build && npm run test:e2e`): sobe simuladores e aplicação, entra pela tela de
+  login e percorre painel, pedido com erro, simulação, reenvio, configurações, auditoria, cadastro de
+  usuário com troca da senha temporária e a lista no celular.
+* **GitHub Actions** (`.github/workflows/ci.yml`): quatro jobs a cada push e pull request — tipos e
   cobertura (com Redis); testes no PostgreSQL e no Redis do `docker/compose.yaml`, com as migrações;
-  build e telas.
+  build e telas (com login); imagem Docker com aplicação e worker rodando.
 
 ## Segurança e auditoria
 
 O App Secret é criptografado (AES-256-GCM), nunca volta pela API e é removido dos logs junto com tokens
-e senhas. A interface ainda não tem login próprio: publique atrás de um proxy autenticado (oauth2-proxy,
-Cloudflare Access, Nginx com SSO). O usuário que o proxy informa no cabeçalho vai para a **Auditoria**,
-que registra alterações de contas, mapeamentos e configurações e as ações manuais nos pedidos. Toda
+e senhas.
+
+**Login próprio** (`AUTH_MODE=local`, o padrão):
+
+* **Perfis:** administradores fazem tudo e cadastram usuários; operadores fazem todo o resto.
+* **Senhas:** guardadas só como hash scrypt, com no mínimo 10 caracteres. Senha temporária (gerada pelo
+  administrador ou no cadastro) obriga a troca no primeiro acesso.
+* **Bloqueio:** 5 senhas erradas seguidas bloqueiam o acesso por 15 minutos, também para e-mails que não
+  existem, para não revelar quem tem conta.
+* **Sessão:** cookie `httpOnly` e `SameSite=Lax` (`Secure` em HTTPS) com um token aleatório; no banco fica
+  só o SHA-256 dele. Expira sem uso (12 h) e no limite (7 dias). Desativar o usuário, trocar ou redefinir
+  a senha encerra as sessões.
+* **API:** toda rota `/api` exige login, menos o login, o `health` e o webhook do Omie (que tem o token
+  próprio). Cron e scripts usam `AUTH_API_TOKEN`. Alterações vindas de outro site são recusadas.
+
+Com `AUTH_MODE=proxy` a aplicação confia num proxy autenticado na frente (oauth2-proxy, Cloudflare
+Access) e grava na auditoria o usuário do cabeçalho; nesse modo o cabeçalho só vale se o proxy o
+sobrescrever.
+
+A **Auditoria** registra entradas, tentativas com senha errada, bloqueios, cadastro de usuários,
+alterações de contas, mapeamentos e configurações e as ações manuais nos pedidos, com o autor. Toda
 resposta da API traz `x-request-id`; o mesmo código aparece nos logs do servidor e na auditoria.

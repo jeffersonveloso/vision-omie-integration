@@ -24,6 +24,11 @@ export async function createDatabase(options: { url?: string; pgliteDir?: string
     const { drizzle } = await import("drizzle-orm/node-postgres");
     const { migrate } = await import("drizzle-orm/node-postgres/migrator");
     const pool = new Pool({ connectionString: options.url, max: 10 });
+    // Conexão ociosa derrubada pelo servidor (PostgreSQL reiniciado, failover, banco apagado nos testes):
+    // sem este handler o evento "error" do pool derruba o processo. O pool abre outra conexão quando precisar.
+    pool.on("error", (error) => {
+      console.warn(JSON.stringify({ ts: new Date().toISOString(), level: "warn", context: "database", message: "Conexão ociosa com o PostgreSQL encerrada pelo servidor", error: error.message }));
+    });
     const db = drizzle({ client: pool, schema });
     if (options.migrate !== false) await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
     return { db: db as unknown as Database, driver: "postgres", close: () => pool.end() };

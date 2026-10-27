@@ -20,6 +20,7 @@ import { BullMqWebhookQueue } from "@/server/infrastructure/queue/bullmq-webhook
 import { InMemoryWebhookQueue } from "@/server/infrastructure/queue/in-memory-webhook-queue";
 import { PurgeOldRecords } from "@/server/modules/integration/application/use-cases/purge-old-records";
 import { AuditService } from "@/server/modules/audit/application/audit-service";
+import { SYSTEM_CONTEXT } from "@/server/modules/audit/domain/audit-event";
 import type { AlertChannel } from "@/server/modules/alerts/application/alert-channel";
 import { AlertService } from "@/server/modules/alerts/application/alert-service";
 import { SlackWebhookChannel } from "@/server/infrastructure/slack/slack-webhook-channel";
@@ -52,6 +53,10 @@ import { DrizzleOmieAccountRepository } from "@/server/modules/omie-accounts/inf
 import { SettingsService } from "@/server/modules/settings/application/settings-service";
 import { settingsDefaults } from "@/server/modules/settings/domain/integration-settings";
 import { DrizzleSettingsRepository } from "@/server/modules/settings/infrastructure/drizzle-settings-repository";
+import { AuthService, UserAdminService } from "@/server/modules/identity/application/auth-service";
+import { DrizzleSessionRepository, DrizzleUserRepository } from "@/server/modules/identity/infrastructure/drizzle-identity-repositories";
+import { ScryptPasswordHasher } from "@/server/modules/identity/infrastructure/scrypt-password-hasher";
+import type { PasswordHasher } from "@/server/modules/identity/domain/user";
 
 export interface ContainerOverrides {
   databaseUrl?: string;
@@ -63,6 +68,8 @@ export interface ContainerOverrides {
   /** Canal de alertas (testes usam um canal em memória no lugar do Slack). */
   alertChannel?: AlertChannel;
   appBaseUrl?: string;
+  /** Hash de senha (testes usam um custo menor para ficarem rápidos). */
+  passwordHasher?: PasswordHasher;
 }
 
 /**
@@ -100,6 +107,14 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   const webhookEvents = new DrizzleWebhookEventRepository(db);
   const audit = new AuditService(new DrizzleAuditRepository(db), ids, clock, logger);
   const queries = new DrizzleOrderQueryService(db, timeZone);
+
+  // Login próprio (AUTH_MODE=local)
+  const identityDeps = { users: new DrizzleUserRepository(db), sessions: new DrizzleSessionRepository(db), hasher: overrides.passwordHasher ?? new ScryptPasswordHasher(), ids, clock };
+  const auth = new AuthService({
+    ...identityDeps,
+    policy: { idleHours: config.AUTH_SESSION_IDLE_HOURS, maxDays: config.AUTH_SESSION_MAX_DAYS, maxFailedLogins: 5, lockMinutes: 15 },
+  });
+  const userAdmin = new UserAdminService(identityDeps);
 
   // Adaptadores externos
   const vision: VisionGateway =
@@ -145,11 +160,20 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   const jobDeps = { orders, runs, lock: jobLock, settings: settingsRepo, ids, clock, logger, instanceId, notifier: alerts };
   const syncJob = new RunSyncJob({ ...jobDeps, collect, process: processOrder });
   const reconcileJob = new RunReconcileJob({ ...jobDeps, reconcile: reconcileOrder });
-  const maintenance = new PurgeOldRecords({ logs, runs, webhooks: webhookEvents, audit, settings: settingsRepo, lock: jobLock, clock, logger, instanceId });
+  const maintenance = new PurgeOldRecords({ logs, runs, webhooks: webhookEvents, audit, sessions: auth, settings: settingsRepo, lock: jobLock, clock, logger, instanceId });
   const scheduler = new IntegrationScheduler({ settings: settingsRepo, sync: syncJob, reconcile: reconcileJob, maintenance, webhookSweep: sweepWebhooks, logger, timeZone });
   settings.attachScheduler(scheduler);
 
   await mappingAdmin.ensureSystemMaps();
+
+  if (config.AUTH_MODE === "local") {
+    const admin = await userAdmin.bootstrapAdmin({ email: config.AUTH_ADMIN_EMAIL, password: config.AUTH_ADMIN_PASSWORD, name: config.AUTH_ADMIN_NAME });
+    if (admin) {
+      logger.info("Primeiro administrador criado a partir de AUTH_ADMIN_EMAIL", { email: admin.email });
+      await audit.record(SYSTEM_CONTEXT, { action: "user.bootstrap", entityType: "USER", entityId: admin.id, summary: `Primeiro administrador ${admin.email} criado pelas variáveis de ambiente.` });
+    }
+    if (config.AUTH_API_TOKEN && config.AUTH_API_TOKEN.length < 32) logger.warn("AUTH_API_TOKEN tem menos de 32 caracteres e foi ignorado.");
+  }
 
   return {
     config,
@@ -163,6 +187,8 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
     mappingAdmin,
     collectionWindow,
     audit,
+    auth,
+    userAdmin,
     alerts,
     webhookQueue,
     webhookEvents,

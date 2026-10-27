@@ -4,6 +4,10 @@
 #   npm run deps:down    # para (os dados ficam nos volumes)
 #   docker compose -f docker/compose.yaml down -v   # para e apaga os dados
 #
+# A aplicação inteira em contêineres (servidor web + worker da fila), perfil "app":
+#   cp docker/app.env.example docker/app.env   # preencha
+#   npm run app:up       # constrói a imagem e sobe PostgreSQL, Redis, aplicação e worker
+#
 # Na aplicação (.env.local):
 #   DATABASE_URL=postgres://postgres:postgres@localhost:5432/vision_omie
 #   REDIS_URL=redis://localhost:6379
@@ -50,6 +54,52 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  # ── Perfil "app": a própria integração (docker/Dockerfile) ──────────────────────────────
+  app:
+    profiles: ["app"]
+    build: &app-build
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: vision-omie-integration:local
+    restart: unless-stopped
+    env_file:
+      - path: ./app.env
+        required: false
+    environment: &app-environment
+      DATABASE_URL: postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-vision_omie}
+      REDIS_URL: redis://redis:6379
+      # A fila é processada pelo serviço "worker" abaixo.
+      WEBHOOK_WORKER_ENABLED: "false"
+    depends_on: &app-depends
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # Na frente, um proxy com HTTPS (Nginx, Caddy, Traefik) publica a aplicação; APP_BIND=0.0.0.0 abre direto.
+    ports:
+      - "${APP_BIND:-127.0.0.1}:${APP_PORT:-3000}:3000"
+
+  # Worker da fila dos webhooks do Omie (mesma imagem). Dá para subir mais de um: --scale worker=2.
+  worker:
+    profiles: ["app"]
+    # Mesma imagem da aplicação (o segundo build sai do cache).
+    build: *app-build
+    image: vision-omie-integration:local
+    restart: unless-stopped
+    command: ["node", "dist/worker.mjs"]
+    env_file:
+      - path: ./app.env
+        required: false
+    environment: *app-environment
+    depends_on:
+      <<: *app-depends
+      # A aplicação aplica as migrações ao iniciar; o worker espera por ela.
+      app:
+        condition: service_healthy
+    # O healthcheck da imagem é do servidor web.
+    healthcheck:
+      disable: true
 
 volumes:
   pgdata:

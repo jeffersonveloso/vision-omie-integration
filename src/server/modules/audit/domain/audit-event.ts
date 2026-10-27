@@ -11,6 +11,7 @@ export const AUDIT_ENTITY_LABELS = {
   ORDER: "Pedido",
   SYNC: "Rotinas",
   SYSTEM: "Sistema",
+  USER: "Usuário",
 } as const;
 
 export type AuditEntityType = keyof typeof AUDIT_ENTITY_LABELS;
@@ -24,7 +25,7 @@ export interface AuditChange {
 export interface AuditEvent {
   id: string;
   at: Date;
-  /** E-mail/usuário informado pelo proxy autenticado; null quando não identificado. */
+  /** E-mail do usuário logado (ou informado pelo proxy autenticado); null quando não identificado. */
   actor: string | null;
   ip: string | null;
   requestId: string | null;

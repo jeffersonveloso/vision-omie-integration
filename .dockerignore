@@ -1,0 +1,17 @@
+# Fora do contexto da imagem: dependências e builds locais, dados, segredos e relatórios.
+node_modules
+.next
+dist
+coverage
+.data
+.git
+.github
+.env*
+!.env.example
+docker/*.env
+docker/.env
+test-results
+playwright-report
+e2e/.auth
+*.tsbuildinfo
+npm-debug.log*

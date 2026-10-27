@@ -16,6 +16,17 @@ export class ApiError extends Error {
   }
 }
 
+/** Para onde mandar o usuário quando a API pede login ou a troca da senha temporária. */
+function redirectForAuth(status: number, code: string): void {
+  if (typeof window === "undefined") return;
+  const here = `${window.location.pathname}${window.location.search}`;
+  if (status === 401 && window.location.pathname !== "/login") {
+    window.location.assign(`/login${here === "/" ? "" : `?next=${encodeURIComponent(here)}`}`);
+  } else if (status === 403 && code === "PASSWORD_CHANGE_REQUIRED" && window.location.pathname !== "/conta") {
+    window.location.assign("/conta");
+  }
+}
+
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
   const response = await fetch(`${BASE}${url}`, {
     method,
@@ -27,6 +38,7 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
   const data = text ? JSON.parse(text) : null;
   if (!response.ok) {
     const e = data?.error ?? {};
+    if (!url.startsWith("/api/auth/")) redirectForAuth(response.status, e.code ?? "");
     throw new ApiError(e.message ?? `Erro ${response.status}`, response.status, e.code ?? "HTTP", e.fieldErrors ?? {}, e.hint ?? null, e.categoryLabel ?? null);
   }
   return data as T;

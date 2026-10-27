@@ -140,3 +140,8 @@ export class IntegrationError extends Error {
     });
   }
 }
+
+/** Reconhece pelo nome também: o erro pode vir de outro bundle (veja `domainErrorName`). */
+export function isIntegrationError(error: unknown): error is IntegrationError {
+  return error instanceof IntegrationError || (error instanceof Error && error.name === "IntegrationError" && typeof (error as IntegrationError).category === "string");
+}
