@@ -48,6 +48,7 @@ import * as webhookRoute from "@/app/api/webhooks/omie/route";
 import { type AppContainer, buildContainer } from "@/server/container";
 import { createTestDatabase } from "./support/test-database";
 import { integrationLogs } from "@/server/infrastructure/database/schema";
+import { lifecycle } from "@/server/infrastructure/http/lifecycle";
 import { OmieGatewayFactoryImpl } from "@/server/infrastructure/omie/omie-gateway";
 import { OmieRateLimiter } from "@/server/infrastructure/omie/omie-rate-limiter";
 import { VisionApiClient } from "@/server/infrastructure/vision/vision-api-client";
@@ -323,6 +324,40 @@ describe("API HTTP", () => {
       app.queries.list = original;
       spy.mockRestore();
     }
+  });
+
+  it("health confere o banco: sem resposta, 503 (monitor e Docker percebem)", async () => {
+    const original = app.database.ping;
+    app.database.ping = async () => {
+      throw new Error("O PostgreSQL não respondeu a tempo.");
+    };
+    try {
+      const down = await call(healthRoute, "GET", "/api/health");
+      expect(down.status).toBe(503);
+      expect(down.body).toMatchObject({ ok: false, databaseOk: false });
+    } finally {
+      app.database.ping = original;
+    }
+    expect((await call(healthRoute, "GET", "/api/health")).body).toMatchObject({ ok: true, databaseOk: true });
+  });
+
+  it("desligando: a API recusa requisições novas com 503 e conta as que estão em andamento", async () => {
+    lifecycle.markShuttingDown();
+    try {
+      const refused = await call(ordersRoute, "GET", "/api/orders");
+      expect(refused.status).toBe(503);
+      expect(refused.headers.get("retry-after")).toBe("10");
+      expect(refused.body.error.code).toBe("SHUTTING_DOWN");
+    } finally {
+      lifecycle.reset();
+    }
+    let release!: () => void;
+    const slow = lifecycle.track(() => new Promise<void>((r) => (release = r)));
+    expect(lifecycle.activeRequests()).toBe(1);
+    expect(await lifecycle.waitIdle(150)).toBe(false);
+    release();
+    await slow;
+    expect(await lifecycle.waitIdle(150)).toBe(true);
   });
 
   it("erro de domínio vindo de outro bundle (sem instanceof) mantém o status certo", async () => {

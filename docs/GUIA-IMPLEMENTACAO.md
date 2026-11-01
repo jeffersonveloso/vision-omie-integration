@@ -176,7 +176,10 @@ Objetivo: nenhum campo Vision → Omie fixo no código. Tudo é configurável na
 * **Campos personalizados:** qualquer caminho do payload Omie (ex.: `det[].inf_adic.peso_bruto`).
 * **Tabelas de-para:** definidas uma vez (chave estável), preenchidas **por conta** (os códigos do Omie
   mudam por base). Importação colando da planilha. Tabelas de sistema: Produtos, Serviços,
-  Empresa Vision → CNPJ, Conta corrente (retorno de baixas).
+  Empresa Vision → CNPJ, Conta corrente (retorno de baixas). As linhas podem ser editadas na aba
+  *Tabelas de-para* ou direto na janela da regra (origem "Tabela de-para"), que também cria tabela nova.
+  O valor do Omie vem da lista da base ou é digitado (opção "Usar …"); tabelas "Texto livre" não
+  consultam o Omie.
 * **Campos do Vision disponíveis:** catálogo do Swagger + campos descobertos nos pedidos recebidos,
   sempre em camelCase (o adaptador converte o PascalCase da API: `Cliente.CPFCNPJ` → `cliente.cpfcnpj`).
 * **Serviços:** o de-para padrão usa `codigoMaterial`, porque no Vision o `CodigoServico` das linhas
@@ -284,7 +287,12 @@ No NestJS o mesmo módulo (`server/modules/identity`) vira um guard global com a
     (padrão 60 min);
   * pedidos que entraram em erro: uma mensagem por execução, agrupada por causa, com link para cada
     pedido (`APP_BASE_URL`); novas tentativas do mesmo erro não repetem o aviso;
-  * nota rejeitada, com o motivo.
+  * nota rejeitada, com o motivo;
+  * do vigia, a cada 5 minutos: webhooks do Omie que esgotaram as tentativas, webhooks parados na fila
+    há mais de 15 minutos (worker ou Redis fora do ar) e rotina parada (sem executar há mais que
+    max(30 min, 3 × o intervalo do agendamento), ou em andamento além do prazo da trava). Os dois
+    últimos respeitam o intervalo mínimo entre avisos. Com cron externo o vigia não roda: monitore
+    `/api/health` por fora.
 * **Dados pessoais:** o ocultamento é por nome de campo (chaves, senhas, tokens). CPF/CNPJ, e-mail e
   endereço dos clientes ficam nos payloads da linha do tempo; ajuste a retenção conforme a política de
   LGPD da Ecolife.
@@ -353,7 +361,7 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 | 2. Fundação | Projeto, persistência, configuração, logs, processamento | Concluída |
 | 3. Vision → Omie | Coleta incremental, pedido completo, clientes, roteamento, PV e OS | Concluída |
 | 4. Omie → Vision | Eventos fiscais, títulos, baixas, cancelamentos | Concluída |
-| 5. Resiliência e testes | Idempotência, retries, testes, exceções, login e implantação | Concluída: 137 testes (≈91% das linhas do backend e das rotas), PostgreSQL e Redis reais, 10 testes de tela, login próprio com usuários, imagem Docker (aplicação + worker) e CI |
+| 5. Resiliência e testes | Idempotência, retries, testes, exceções, login e implantação | Concluída: 154 testes (≈91% das linhas do backend e das rotas), PostgreSQL e Redis reais, 12 testes de tela, login próprio com usuários, imagem Docker (aplicação + worker), desligamento ordenado, vigia com alertas e CI |
 | 6. Homologação | Testes ponta a ponta reais, correções, documentação, implantação | Próximo passo |
 
 ### Checklist de homologação (critérios de aceite da proposta)
@@ -376,6 +384,17 @@ JSON em PascalCase, datas sem fuso, envelope com `TotalPaginas`, serviço identi
 * **Janela da primeira coleta:** 7 dias (`SYNC_INITIAL_LOOKBACK_DAYS`, editável em *Configurações ›
   Coleta*). Depois da primeira execução a coleta continua de onde parou; a mesma tela mostra até onde
   chegou e tem **Recomeçar a coleta**, que volta a buscar os últimos N dias sem duplicar pedidos.
+* **Trazer pedidos do Vision** (*Pedidos › Trazer do Vision*, ou `POST /api/sync/import`): pelo código
+  (até 100) ou por período de atualização (até 92 dias), com opção de enviar ao Omie na hora. Não mexe
+  em até onde a coleta automática chegou, respeita as situações elegíveis (dá para incluir as outras de
+  propósito), aponta códigos que o Vision não encontrou e fica na auditoria. Útil na homologação.
+* **Banco fora do ar:** conexão nova com o PostgreSQL desiste em 10 s (sem isso a requisição esperava o
+  TCP por minutos); `/api/health` faz `select 1` e responde 503 quando o banco não responde, para o
+  Docker, o balanceador e um monitor externo perceberem.
+* **Desligamento ordenado:** com `NEXT_MANUAL_SIG_HANDLE=true` (a imagem já define), ao receber SIGTERM
+  a aplicação recusa requisições novas (503), para o agendador, espera as rotinas e requisições em
+  andamento por até `SHUTDOWN_TIMEOUT_MS` (25 s) e fecha fila e banco. O compose dá 40 s ao contêiner.
+  Se o prazo acabar, o pedido interrompido é retomado na execução seguinte sem duplicar no Omie.
 * **Etapa de testes (homologação):** `npm run deps:up` sobe o PostgreSQL 17 e o Redis 7.4 de
   `docker/compose.yaml`; aponte `DATABASE_URL` e `REDIS_URL` para eles (endereços no README). O CI usa o
   mesmo arquivo, então ele é validado a cada push.

@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/app-shell";
 import { TrackMini } from "@/components/integration-track";
 import { DocumentChip, ORDER_STATUS_META, StatusBadge } from "@/components/status";
 import { SyncButton } from "@/components/sync-button";
+import { ImportOrdersButton } from "./import-dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, NativeSelect } from "@/components/ui/form-controls";
 import { EmptyState, Panel, Skeleton } from "@/components/ui/misc";
@@ -236,7 +237,13 @@ export function OrdersView() {
 
   return (
     <>
-      <PageHeader title="Pedidos" description="Todos os pedidos do Vision acompanhados pela integração. Abra um pedido para ver a linha do tempo completa e a causa de qualquer erro." actions={<SyncButton />} />
+      <PageHeader title="Pedidos" description="Todos os pedidos do Vision acompanhados pela integração. Abra um pedido para ver a linha do tempo completa e a causa de qualquer erro." actions={
+          <>
+            <ImportOrdersButton />
+            <SyncButton />
+          </>
+        }
+      />
 
       <div className="relative mb-4 flex gap-1 overflow-x-auto border-b border-border" role="tablist" aria-label="Filtrar por situação">
         {SEGMENTS.map((segment) => {

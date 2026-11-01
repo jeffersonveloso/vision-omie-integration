@@ -26,8 +26,11 @@ RUN mkdir -p public && NEXT_OUTPUT=standalone npm run build && npm run build:scr
 # ── Execução: só o servidor enxuto do Next, os scripts e as migrações ────────────────────
 FROM node:${NODE_VERSION}-bookworm-slim AS runtime
 WORKDIR /app
+# NEXT_MANUAL_SIG_HANDLE: no SIGTERM quem encerra é a aplicação (espera rotinas e requisições em
+# andamento por até SHUTDOWN_TIMEOUT_MS, depois fecha fila e banco). Veja src/server/shutdown.ts.
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_MANUAL_SIG_HANDLE=true \
     PORT=3000 \
     HOSTNAME=0.0.0.0
 COPY --from=build --chown=node:node /app/.next/standalone ./

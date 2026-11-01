@@ -50,6 +50,8 @@ export const settingsSchema = z.object({
     onJobFailure: z.boolean(),
     onOrderErrors: z.boolean(),
     onRejection: z.boolean(),
+    onWebhookProblems: z.boolean().default(true),
+    onStalledJobs: z.boolean().default(true),
     cooldownMinutes: intIn(0, 24 * 60),
   }),
   logs: z

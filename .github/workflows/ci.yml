@@ -159,6 +159,12 @@ jobs:
           docker compose -f docker/compose.yaml --profile app exec -T app node dist/migrate.mjs
           curl -fsS -H 'content-type: application/json' -d '{"email":"ops@ci.test","password":"jabuticaba-madura-9"}' $BASE/api/auth/login | jq -e '.user.role == "OPERATOR"'
           docker image ls vision-omie-integration:local --format 'Imagem: {{.Size}}'
+          # Health confere o banco; e o desligamento é ordenado (espera o que está em andamento e fecha tudo).
+          curl -fsS $BASE/api/health | jq -e '.databaseOk == true'
+          docker compose -f docker/compose.yaml --profile app stop app
+          docker compose -f docker/compose.yaml --profile app logs app > app.log
+          grep -q "Desligando: esperando rotinas e requisições em andamento" app.log
+          grep -q "Aplicação encerrada" app.log
       - name: Logs dos contêineres
         if: failure()
         run: |

@@ -1,4 +1,5 @@
 import type { AppLogger, Clock, IdGenerator } from "@/server/shared/application/ports";
+import { ConflictError } from "@/server/shared/domain/result";
 import { addDays } from "@/server/shared/domain/dates";
 import type { SettingsRepository } from "@/server/modules/settings/domain/integration-settings";
 import type { IntegrationOrderRepository, JobLock, SyncRun, SyncRunRepository, SyncTrigger } from "../../domain/repositories";
@@ -134,5 +135,98 @@ export class RunReconcileJob {
     }
     await this.deps.notifier?.notifyRun({ run, ...notice });
     return run;
+  }
+}
+
+export interface ImportRequest {
+  /** Códigos de pedido do Vision. */
+  codes?: number[];
+  /** Período de atualização no Vision (aaaa-mm-dd), quando não há códigos. */
+  from?: string;
+  to?: string;
+  /** Envia ao Omie logo depois de trazer (só pedidos na fila ou com erro). */
+  process: boolean;
+  /** Traz pedidos pelo código mesmo fora das situações elegíveis. */
+  includeIneligible?: boolean;
+}
+
+export interface ImportOutcome {
+  run: SyncRun;
+  fetched: number;
+  discovered: number;
+  updated: number;
+  unchanged: number;
+  notFound: number[];
+  notEligible: Array<{ code: number; statusCode: number | null; statusDescription: string | null }>;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  orderIds: string[];
+  /** Situação final dos pedidos trazidos (até 200), para a tela mostrar e abrir cada um. */
+  orders: Array<{ id: string; visionOrderCode: number; status: string; lastError: string | null }>;
+}
+
+/**
+ * Traz pedidos do Vision fora da coleta automática: pelo código ou por um período escolhido. Não move o
+ * ponto em que a coleta automática está. Usa a mesma trava da sincronização para não disputar pedidos.
+ */
+export class ImportVisionOrders {
+  constructor(private readonly deps: JobDeps & { collect: CollectVisionOrders; process: ProcessOrder }) {}
+
+  async execute(input: ImportRequest, actor: string | null = null): Promise<ImportOutcome> {
+    const { orders, runs, lock, settings: settingsRepo, ids, clock, logger, instanceId, collect, process } = this.deps;
+    const settings = await settingsRepo.get();
+    if (!(await lock.tryAcquire("sync", instanceId, 30 * 60_000))) {
+      throw new ConflictError("Uma coleta ou importação já está em andamento. Tente de novo em instantes.");
+    }
+    const run: SyncRun = { id: ids.next(), job: "SYNC", trigger: "MANUAL", status: "RUNNING", startedAt: clock.now(), finishedAt: null, windowFrom: input.codes?.length ? null : (input.from ?? null), windowTo: input.codes?.length ? null : (input.to ?? null), stats: {}, error: null };
+    await runs.create(run);
+    const outcome: ImportOutcome = { run, fetched: 0, discovered: 0, updated: 0, unchanged: 0, notFound: [], notEligible: [], processed: 0, succeeded: 0, failed: 0, orderIds: [], orders: [] };
+    const notice: Omit<RunNotice, "run"> = { failures: [], rejections: [] };
+    try {
+      if (input.codes?.length) {
+        const r = await collect.importByCodes({ codes: input.codes, runId: run.id, includeIneligible: input.includeIneligible });
+        Object.assign(outcome, { fetched: r.fetched, discovered: r.discovered, updated: r.updated + r.updatedAfterSync, unchanged: r.unchanged, notFound: r.notFound, notEligible: r.notEligible, orderIds: r.orderIds });
+      } else {
+        const r = await collect.execute({ runId: run.id, from: input.from, to: input.to, updateCheckpoint: false });
+        Object.assign(outcome, { fetched: r.fetched, discovered: r.discovered, updated: r.updated + r.updatedAfterSync, unchanged: r.unchanged, orderIds: r.orderIds });
+      }
+
+      if (input.process) {
+        const due: string[] = [];
+        for (const id of outcome.orderIds) {
+          const order = await orders.findById(id);
+          if (order && !order.ignored && (order.status === "PENDING" || order.status === "ERROR")) due.push(id);
+        }
+        const limited = due.slice(0, settings.sync.maxOrdersPerRun);
+        await runPool(limited, settings.sync.concurrency, async (orderId) => {
+          const result = await process.execute({ orderId, runId: run.id, trigger: "MANUAL", actor });
+          if (result.status === "SENT") outcome.succeeded++;
+          if (result.status === "FAILED") {
+            outcome.failed++;
+            if (result.newError) notice.failures.push({ orderId, visionOrderCode: result.visionOrderCode, category: result.error.category, message: result.error.message });
+          }
+        });
+        outcome.processed = limited.length;
+      }
+      for (const id of outcome.orderIds.slice(0, 200)) {
+        const order = await orders.findById(id);
+        if (order) outcome.orders.push({ id, visionOrderCode: order.visionOrderCode, status: order.status, lastError: order.lastError?.message ?? null });
+      }
+      run.stats = { fetched: outcome.fetched, discovered: outcome.discovered, updated: outcome.updated, processed: outcome.processed, succeeded: outcome.succeeded, failed: outcome.failed };
+      run.status = outcome.failed > 0 || outcome.notFound.length > 0 ? "PARTIAL" : "SUCCESS";
+      run.error = outcome.notFound.length ? `Não encontrado(s) no Vision: ${outcome.notFound.join(", ")}` : null;
+    } catch (error) {
+      run.status = "FAILED";
+      run.error = error instanceof Error ? error.message : String(error);
+      logger.error("Falha ao trazer pedidos do Vision", { error: run.error });
+      throw error;
+    } finally {
+      run.finishedAt = clock.now();
+      await runs.update(run);
+      await lock.release("sync", instanceId);
+      await this.deps.notifier?.notifyRun({ run, ...notice }).catch(() => undefined);
+    }
+    return outcome;
   }
 }

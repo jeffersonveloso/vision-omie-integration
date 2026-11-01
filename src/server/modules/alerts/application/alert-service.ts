@@ -5,6 +5,7 @@ import { ERROR_CATEGORY_LABELS, type ErrorCategory } from "@/server/modules/inte
 import type { CheckpointRepository } from "@/server/modules/integration/domain/repositories";
 import type { SettingsRepository } from "@/server/modules/settings/domain/integration-settings";
 import type { AlertChannel, AlertMessage } from "./alert-channel";
+import type { WatchFinding, WatchNotifier } from "./health-watchdog";
 
 const JOB_LABEL = { SYNC: "Coleta e envio (Vision → Omie)", RECONCILE: "Retorno ao Vision (Omie → Vision)", RETRY: "Novas tentativas" } as const;
 const MAX_LINES = 10;
@@ -14,10 +15,12 @@ const COOLDOWN_KEY = (key: string) => `alerts.cooldown.${key}`;
  * Regras dos alertas (Configurações › Alertas no Slack):
  *  - rotina com falha (Vision/Omie fora do ar, erro geral) — no máximo um aviso igual a cada `cooldownMinutes`;
  *  - pedidos que entraram em erro na execução — novas tentativas do mesmo erro não repetem o aviso;
- *  - notas que passaram a ser rejeitadas.
+ *  - notas que passaram a ser rejeitadas;
+ *  - do vigia (a cada 5 min): webhooks que esgotaram as tentativas, webhooks parados na fila e rotina
+ *    parada — os dois últimos no máximo uma vez a cada `cooldownMinutes`.
  * Falhar ao avisar nunca interrompe a integração: vira log de erro.
  */
-export class AlertService implements RunNotifier {
+export class AlertService implements RunNotifier, WatchNotifier {
   constructor(
     private readonly deps: {
       channel: AlertChannel;
@@ -46,6 +49,60 @@ export class AlertService implements RunNotifier {
     } catch (error) {
       this.deps.logger.error("Falha ao enviar alerta", { channel: this.deps.channel.name, runId: notice.run.id, error: String(error) });
     }
+  }
+
+  async notifyFindings(findings: WatchFinding[]): Promise<void> {
+    try {
+      const { alerts } = await this.deps.settings.get();
+      if (!alerts.enabled || !this.deps.channel.configured) return;
+      const messages: AlertMessage[] = [];
+      for (const f of findings) {
+        if (f.kind === "webhook-failed" && alerts.onWebhookProblems) messages.push(this.webhookFailed(f));
+        if (f.kind === "webhook-stuck" && alerts.onWebhookProblems && (await this.passCooldown("watch.webhook-stuck", alerts.cooldownMinutes))) messages.push(this.webhookStuck(f));
+        if (f.kind === "job-stalled" && alerts.onStalledJobs && (await this.passCooldown(`watch.stalled.${f.job}`, alerts.cooldownMinutes))) messages.push(this.jobStalled(f));
+      }
+      for (const message of messages) await this.deps.channel.send(message);
+    } catch (error) {
+      this.deps.logger.error("Falha ao enviar alerta do vigia", { channel: this.deps.channel.name, error: String(error) });
+    }
+  }
+
+  private webhookFailed(f: Extract<WatchFinding, { kind: "webhook-failed" }>): AlertMessage {
+    const lines = f.items.map((i) => `• ${this.deps.channel.escape(i.topic ?? "sem tópico")} — ${this.deps.channel.escape(i.lastError ?? "sem descrição")}`);
+    if (f.total > f.items.length) lines.push(`… e mais ${f.total - f.items.length} evento(s).`);
+    return {
+      severity: "warning",
+      title: f.total === 1 ? "Um webhook do Omie esgotou as tentativas" : `${f.total} webhooks do Omie esgotaram as tentativas`,
+      lines: [...lines, "Os pedidos continuam sendo acompanhados pela rotina de retorno; os eventos podem ser reprocessados pela tela."],
+      footer: this.footer(),
+      action: this.url("/execucoes") ? { label: "Abrir webhooks", url: this.url("/execucoes")! } : undefined,
+    };
+  }
+
+  private webhookStuck(f: Extract<WatchFinding, { kind: "webhook-stuck" }>): AlertMessage {
+    return {
+      severity: "error",
+      title: `${f.count} webhook(s) do Omie parado(s) na fila`,
+      lines: [`Recebidos há mais de ${f.minutes} minutos e ainda não processados. Confira se o worker da fila está rodando e se o Redis responde.`],
+      footer: this.footer(),
+      action: this.url("/execucoes") ? { label: "Abrir webhooks", url: this.url("/execucoes")! } : undefined,
+    };
+  }
+
+  private jobStalled(f: Extract<WatchFinding, { kind: "job-stalled" }>): AlertMessage {
+    const when = new Intl.DateTimeFormat("pt-BR", { timeZone: this.deps.timeZone, dateStyle: "short", timeStyle: "short" }).format(f.lastStartedAt);
+    return {
+      severity: "error",
+      title: `${JOB_LABEL[f.job]} parada`,
+      lines: [
+        f.running
+          ? `A execução iniciada em ${when} continua em andamento há ${f.minutesSince} minutos (limite: ${f.thresholdMinutes}). Ela pode estar travada.`
+          : `A última execução começou em ${when}, há ${f.minutesSince} minutos; pelo agendamento já deveria ter rodado de novo (limite: ${f.thresholdMinutes} minutos).`,
+        "Novos pedidos não estão sendo enviados ou retornados. Reinicie a aplicação se o problema continuar.",
+      ],
+      footer: this.footer(),
+      action: this.url("/execucoes") ? { label: "Ver execuções", url: this.url("/execucoes")! } : undefined,
+    };
   }
 
   /** Mensagem de teste do botão em Configurações. Lança erro para a tela mostrar o motivo. */

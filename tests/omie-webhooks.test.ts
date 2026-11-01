@@ -129,6 +129,11 @@ describe("webhooks do Omie com a fila em memória", () => {
     await flaky.idle();
     expect(await event(eventId)).toMatchObject({ status: "FAILED", attempts: 2, lastError: "banco instável" });
 
+    // O vigia acha a falha definitiva (uma vez) e o banco sabe quando ela aconteceu.
+    const failed = await ctx.app.webhookEvents.failedSince(new Date(Date.now() - 60_000), 10);
+    expect(failed).toMatchObject({ total: 1, items: [expect.objectContaining({ id: eventId, lastError: "banco instável" })] });
+    expect((await ctx.app.webhookEvents.failedSince(new Date(Date.now() + 1_000), 10)).total).toBe(0);
+
     const retried = await ctx.app.useCases.retryWebhooks.execute({});
     expect(retried.queued).toBe(1);
     await idle();
@@ -141,6 +146,9 @@ describe("webhooks do Omie com a fila em memória", () => {
     const { eventId, queued } = await receive.execute(faturada(ctx.omieId));
     expect(queued).toBe(false);
     expect((await event(eventId)).status).toBe("RECEIVED");
+    // Parado há mais de 15 min aos olhos do vigia (relógio adiantado), e não antes disso.
+    expect(await ctx.app.webhookEvents.countUnfinishedBefore(new Date(Date.now() - 15 * 60_000))).toBe(0);
+    expect(await ctx.app.webhookEvents.countUnfinishedBefore(new Date(Date.now() + 60_000))).toBe(1);
 
     const later = new SweepWebhookEvents({ events: ctx.app.webhookEvents, queue: ctx.app.webhookQueue, clock: { now: () => new Date(Date.now() + 5 * 60_000) }, logger });
     expect(await later.execute()).toBe(1);

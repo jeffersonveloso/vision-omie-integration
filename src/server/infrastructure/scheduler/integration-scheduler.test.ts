@@ -60,4 +60,21 @@ describe("agendador", () => {
     expect(job(scheduler, "sync").lastRunAt).not.toBeNull();
     scheduler.stop();
   });
+
+  it("desligamento: não inicia novas rotinas e espera a que está rodando, até o prazo", async () => {
+    const { scheduler, deps } = setup();
+    let finish!: () => void;
+    deps.sync.execute.mockImplementationOnce(() => new Promise((resolve) => (finish = () => resolve({}))));
+    await scheduler.start();
+    const cron = (scheduler as unknown as { jobs: Map<string, { cron: { trigger(): Promise<void> } }> }).jobs.get("sync")!.cron;
+    const running = cron.trigger();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(await scheduler.drain(50)).toBe(false);
+    const draining = scheduler.drain(2_000);
+    finish();
+    expect(await draining).toBe(true);
+    await running;
+    expect(scheduler.status()).toMatchObject({ running: false, jobs: [] });
+    expect(await scheduler.drain(10)).toBe(true);
+  });
 });

@@ -87,6 +87,10 @@ export interface IntegrationSettings {
     onOrderErrors: boolean;
     /** Notas rejeitadas pela SEFAZ/prefeitura. */
     onRejection: boolean;
+    /** Webhooks do Omie que esgotaram as tentativas ou ficaram parados na fila (worker/Redis fora do ar). */
+    onWebhookProblems: boolean;
+    /** Coleta ou retorno que deixou de rodar no agendamento (rotina travada). */
+    onStalledJobs: boolean;
     /** Intervalo mínimo entre alertas iguais de falha de rotina (minutos). */
     cooldownMinutes: number;
   };
@@ -159,6 +163,8 @@ export const DEFAULT_SETTINGS: IntegrationSettings = {
     onJobFailure: true,
     onOrderErrors: true,
     onRejection: true,
+    onWebhookProblems: true,
+    onStalledJobs: true,
     cooldownMinutes: 60,
   },
   logs: {

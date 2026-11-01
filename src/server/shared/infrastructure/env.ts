@@ -56,6 +56,8 @@ const schema = z.object({
   /** Sessão expira depois deste tempo sem uso (horas) e, mesmo em uso, depois do limite (dias). */
   AUTH_SESSION_IDLE_HOURS: z.coerce.number().min(1).max(24 * 30).optional().default(12),
   AUTH_SESSION_MAX_DAYS: z.coerce.number().min(1).max(90).optional().default(7),
+  /** Quanto o desligamento espera rotinas e requisições em andamento (ms). Deixe abaixo do prazo do Docker. */
+  SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).optional().default(25_000),
   /** Cookie só por HTTPS. Vazio = automático (HTTPS direto ou X-Forwarded-Proto: https). */
   AUTH_COOKIE_SECURE: boolish,
 });

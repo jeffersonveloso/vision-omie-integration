@@ -97,4 +97,40 @@ describe("alertas", () => {
     expect(channel.sent[0].lines[1]).toContain("*Pedido 14103*");
     expect(channel.sent[0].action).toBeUndefined();
   });
+
+  it("vigia: webhooks com falha sempre; fila parada e rotina parada respeitam o intervalo e as chaves", async () => {
+    const { channel, service, advance } = setup({ cooldownMinutes: 60 });
+    const findings = [
+      { kind: "webhook-failed" as const, total: 12, items: [{ id: "1", topic: "VendaProduto.Faturada", lastError: "Omie fora do ar" }] },
+      { kind: "webhook-stuck" as const, count: 3, minutes: 15 },
+      { kind: "job-stalled" as const, job: "SYNC" as const, lastStartedAt: new Date("2026-10-22T10:00:00Z"), running: false, minutesSince: 120, thresholdMinutes: 30 },
+      { kind: "job-stalled" as const, job: "RECONCILE" as const, lastStartedAt: new Date("2026-10-22T10:30:00Z"), running: true, minutesSince: 90, thresholdMinutes: 60 },
+    ];
+    await service.notifyFindings(findings);
+    expect(channel.sent.map((m) => m.title)).toEqual([
+      "12 webhooks do Omie esgotaram as tentativas",
+      "3 webhook(s) do Omie parado(s) na fila",
+      "Coleta e envio (Vision → Omie) parada",
+      "Retorno ao Vision (Omie → Vision) parada",
+    ]);
+    expect(channel.sent[0].lines).toContain("… e mais 11 evento(s).");
+    expect(channel.sent[2].lines[0]).toContain("já deveria ter rodado de novo");
+    expect(channel.sent[3].lines[0]).toContain("continua em andamento há 90 minutos");
+
+    await service.notifyFindings(findings);
+    expect(channel.sent).toHaveLength(5); // só a falha nova de webhook; as outras esperam o intervalo
+    advance(61);
+    await service.notifyFindings(findings);
+    expect(channel.sent).toHaveLength(9);
+  });
+
+  it("vigia: respeita as chaves da tela e não derruba nada se o canal falhar", async () => {
+    const off = setup({ onWebhookProblems: false, onStalledJobs: false });
+    await off.service.notifyFindings([{ kind: "webhook-stuck", count: 1, minutes: 15 }, { kind: "job-stalled", job: "SYNC", lastStartedAt: new Date(), running: false, minutesSince: 99, thresholdMinutes: 30 }]);
+    expect(off.channel.sent).toHaveLength(0);
+    const broken = setup();
+    broken.channel.fail = true;
+    await broken.service.notifyFindings([{ kind: "webhook-stuck", count: 1, minutes: 15 }]);
+    expect(broken.logger.error).toHaveBeenCalledWith("Falha ao enviar alerta do vigia", expect.anything());
+  });
 });

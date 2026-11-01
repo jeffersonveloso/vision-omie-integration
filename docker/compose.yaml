@@ -63,6 +63,8 @@ services:
       dockerfile: docker/Dockerfile
     image: vision-omie-integration:local
     restart: unless-stopped
+    # Tempo para terminar o que está em andamento ao parar (a aplicação espera até SHUTDOWN_TIMEOUT_MS, 25 s).
+    stop_grace_period: 40s
     env_file:
       - path: ./app.env
         required: false
@@ -88,6 +90,7 @@ services:
     image: vision-omie-integration:local
     restart: unless-stopped
     command: ["node", "dist/worker.mjs"]
+    stop_grace_period: 40s
     env_file:
       - path: ./app.env
         required: false

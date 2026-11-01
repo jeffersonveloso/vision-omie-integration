@@ -68,6 +68,8 @@ export interface SyncRunRepository {
   create(run: SyncRun): Promise<void>;
   update(run: SyncRun): Promise<void>;
   purgeBefore(date: Date): Promise<number>;
+  /** Execução mais recente da rotina (para o vigia saber se ela parou). */
+  latest(job: SyncJob): Promise<SyncRun | null>;
 }
 
 export interface CheckpointRepository {

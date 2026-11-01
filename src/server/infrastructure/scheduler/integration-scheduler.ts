@@ -8,6 +8,8 @@ import type { SettingsRepository } from "@/server/modules/settings/domain/integr
 
 export const MAINTENANCE_CRON = "17 3 * * *";
 export const WEBHOOK_SWEEP_CRON = "* * * * *";
+/** Vigia (alertas de webhooks com problema e rotina parada): a cada 5 min, deslocado das rotinas. */
+export const WATCHDOG_CRON = "2-59/5 * * * *";
 
 interface JobState {
   name: string;
@@ -26,6 +28,8 @@ interface JobState {
 export class IntegrationScheduler implements SchedulerControl {
   private jobs = new Map<string, JobState>();
   private started = false;
+  /** Rotinas em execução agora (para o desligamento esperar por elas). */
+  private readonly running = new Set<Promise<unknown>>();
 
   constructor(
     private readonly deps: {
@@ -34,6 +38,8 @@ export class IntegrationScheduler implements SchedulerControl {
       reconcile: RunReconcileJob;
       maintenance: PurgeOldRecords;
       webhookSweep: SweepWebhookEvents;
+      /** Opcional para manter compatíveis os testes antigos do agendador. */
+      watchdog?: { execute(): Promise<unknown> };
       logger: AppLogger;
       timeZone: string;
     },
@@ -57,12 +63,29 @@ export class IntegrationScheduler implements SchedulerControl {
     this.register("maintenance", true, MAINTENANCE_CRON, () => this.deps.maintenance.execute());
     // Webhooks que não chegaram à fila (Redis fora do ar no recebimento) voltam para ela.
     this.register("webhooks", true, WEBHOOK_SWEEP_CRON, () => this.deps.webhookSweep.execute());
+    if (this.deps.watchdog) this.register("watchdog", true, WATCHDOG_CRON, () => this.deps.watchdog!.execute());
   }
 
   stop(): void {
     for (const job of this.jobs.values()) job.cron?.stop();
     this.jobs.clear();
     this.started = false;
+  }
+
+  /**
+   * Desligamento: não começa mais nenhuma rotina e espera as que estão rodando (até `timeoutMs`).
+   * Devolve true se todas terminaram a tempo.
+   */
+  async drain(timeoutMs: number): Promise<boolean> {
+    this.stop();
+    if (!this.running.size) return true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const finished = await Promise.race([
+      Promise.allSettled([...this.running]).then(() => true),
+      new Promise<boolean>((resolve) => (timer = setTimeout(() => resolve(false), timeoutMs))),
+    ]);
+    clearTimeout(timer);
+    return finished;
   }
 
   private register(name: string, enabled: boolean, expression: string, task: () => Promise<unknown>): void {
@@ -79,9 +102,12 @@ export class IntegrationScheduler implements SchedulerControl {
         },
         async () => {
           state.busy = true;
+          const run = task();
+          this.running.add(run);
           try {
-            await task();
+            await run;
           } finally {
+            this.running.delete(run);
             state.busy = false;
             state.lastRunAt = new Date();
           }

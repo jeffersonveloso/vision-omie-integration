@@ -9,6 +9,17 @@ export interface DatabaseHandle {
   db: Database;
   driver: "postgres" | "pglite";
   close(): Promise<void>;
+  /** Confere se o banco responde (health). Lança erro se não responder em `timeoutMs`. */
+  ping(timeoutMs?: number): Promise<void>;
+}
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([promise, new Promise<never>((_, reject) => (timer = setTimeout(() => reject(new Error(message)), ms)))]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 const MIGRATIONS_FOLDER = path.join(process.cwd(), "drizzle");
@@ -23,7 +34,9 @@ export async function createDatabase(options: { url?: string; pgliteDir?: string
     const { Pool } = await import("pg");
     const { drizzle } = await import("drizzle-orm/node-postgres");
     const { migrate } = await import("drizzle-orm/node-postgres/migrator");
-    const pool = new Pool({ connectionString: options.url, max: 10 });
+    // Sem limite, uma conexão nova com o banco fora do ar espera o timeout do TCP (minutos) e prende a
+    // requisição; com ele, a requisição falha em 10 s com um erro claro.
+    const pool = new Pool({ connectionString: options.url, max: 10, connectionTimeoutMillis: 10_000, idleTimeoutMillis: 30_000, keepAlive: true, keepAliveInitialDelayMillis: 10_000 });
     // Conexão ociosa derrubada pelo servidor (PostgreSQL reiniciado, failover, banco apagado nos testes):
     // sem este handler o evento "error" do pool derruba o processo. O pool abre outra conexão quando precisar.
     pool.on("error", (error) => {
@@ -31,7 +44,14 @@ export async function createDatabase(options: { url?: string; pgliteDir?: string
     });
     const db = drizzle({ client: pool, schema });
     if (options.migrate !== false) await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
-    return { db: db as unknown as Database, driver: "postgres", close: () => pool.end() };
+    return {
+      db: db as unknown as Database,
+      driver: "postgres",
+      close: () => pool.end(),
+      ping: async (timeoutMs = 3_000) => {
+        await withTimeout(pool.query("select 1"), timeoutMs, "O PostgreSQL não respondeu a tempo.");
+      },
+    };
   }
 
   const { PGlite } = await import("@electric-sql/pglite");
@@ -43,5 +63,12 @@ export async function createDatabase(options: { url?: string; pgliteDir?: string
   const client = inMemory ? new PGlite() : new PGlite(path.resolve(target));
   const db = drizzle({ client, schema });
   if (options.migrate !== false) await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
-  return { db: db as unknown as Database, driver: "pglite", close: () => client.close() };
+  return {
+    db: db as unknown as Database,
+    driver: "pglite",
+    close: () => client.close(),
+    ping: async (timeoutMs = 3_000) => {
+      await withTimeout(client.query("select 1"), timeoutMs, "O banco embarcado não respondeu a tempo.");
+    },
+  };
 }

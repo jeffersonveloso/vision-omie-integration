@@ -7,6 +7,8 @@ import { createTestDatabase } from "./support/test-database";
 import { OmieGatewayFactoryImpl } from "@/server/infrastructure/omie/omie-gateway";
 import { OmieRateLimiter } from "@/server/infrastructure/omie/omie-rate-limiter";
 import { VisionApiClient } from "@/server/infrastructure/vision/vision-api-client";
+import { HealthWatchdog } from "@/server/modules/alerts/application/health-watchdog";
+import { DrizzleSyncRunRepository } from "@/server/modules/integration/infrastructure/drizzle-integration-repositories";
 
 /**
  * Fluxo ponta a ponta contra os simuladores HTTP (mesmo contrato das APIs reais)
@@ -214,6 +216,22 @@ describe("Fluxo de integração Vision ↔ Omie", () => {
     const callsBefore = omie.calls.filter((c) => c.param.nCodOS === omieId).length;
     await app.useCases.reconcileJob.execute({ trigger: "MANUAL" });
     expect(omie.calls.filter((c) => c.param.nCodOS === omieId).length).toBe(callsBefore);
+  });
+
+  it("o vigia lê as execuções reais: em dia agora, parada se o relógio andar 2 horas", async () => {
+    expect(await app.useCases.watchdog.execute()).toEqual([]);
+    const runs = new DrizzleSyncRunRepository(app.database.db);
+    expect((await runs.latest("SYNC"))?.job).toBe("SYNC");
+    const later = new HealthWatchdog({
+      webhooks: app.webhookEvents,
+      runs,
+      settings: { get: () => app.settings.get(), save: async () => {} },
+      checkpoints: { get: async () => null, set: async () => {}, delete: async () => {} },
+      notifier: { notifyFindings: async () => {} },
+      clock: { now: () => new Date(Date.now() + 2 * 3_600_000) },
+      timeZone: "America/Sao_Paulo",
+    });
+    expect((await later.execute()).filter((f) => f.kind === "job-stalled").map((f) => (f as { job: string }).job)).toEqual(["SYNC", "RECONCILE"]);
   });
 
   it("lista concluídos sem erro e conta por status", async () => {

@@ -9,6 +9,7 @@ autorização, rejeição e cancelamento das notas, as baixas e os cancelamentos
 * **Rastreável:** cada pedido mostra em que etapa está, a causa de qualquer erro com dica de correção e
   todas as chamadas feitas ao Vision e ao Omie (request/response).
 * **Reenvio manual:** de um pedido, dos selecionados ou de todos com a mesma causa.
+* **Trazer do Vision:** pedidos específicos pelo código ou um período, fora da coleta automática.
 * **Sem duplicidade:** códigos de integração determinísticos e consulta antes de incluir.
 * **Webhooks do Omie em fila:** a rota grava o evento e responde na hora; um worker (Redis + BullMQ)
   consulta o Omie e devolve ao Vision, com novas tentativas e reprocessamento pela tela.
@@ -139,6 +140,7 @@ cp .env.example .env.local   # preencha; nunca versione este arquivo
 | `OMIE_READ_CACHE_MS` | Cache de consultas idênticas ao Omie (padrão 55000). |
 | `SYNC_INITIAL_LOOKBACK_DAYS` | Dias que a primeira coleta busca para trás (padrão 7). Valor inicial: depois de salvar Configurações vale o da tela, e "Recomeçar a coleta" aplica de novo. |
 | `SCHEDULER_ENABLED` | Agendador interno (padrão `true`). |
+| `NEXT_MANUAL_SIG_HANDLE`, `SHUTDOWN_TIMEOUT_MS` | Desligamento ordenado: com `true`, no SIGTERM a aplicação espera rotinas e requisições em andamento (padrão 25000 ms) e fecha fila e banco. A imagem Docker já define. |
 | `OMIE_WEBHOOK_TOKEN` | Ativa `/api/webhooks/omie?token=…` (opcional). |
 | `REDIS_URL` | Redis da fila de webhooks (BullMQ). Vazio = fila em memória, só para desenvolvimento. |
 | `REDIS_PREFIX` | Prefixo das chaves no Redis (padrão `vision-omie`). |
@@ -167,8 +169,11 @@ Primeiros passos na aplicação:
 2. **Contas Omie** — cadastre uma conta por base e use *Testar conexão* (confere o CNPJ da base).
 3. **Mapeamentos** — em cada conta, associe o código da empresa do Vision na tabela *Empresa Vision →
    CNPJ* (o pedido do Vision não traz o CNPJ). Defina categoria e conta corrente (obrigatórias no Omie) e
-   preencha os de-para de produtos e serviços (serviços pelo `codigoMaterial` do Vision). Use *Simular mapeamento* em um pedido antes de ligar a coleta.
-4. **Painel / Pedidos** — acompanhe, corrija e reenvie.
+   preencha os de-para de produtos e serviços (serviços pelo `codigoMaterial` do Vision). As linhas
+   também podem ser preenchidas direto na janela da regra. Use *Simular mapeamento* em um pedido antes
+   de ligar a coleta.
+4. **Painel / Pedidos** — acompanhe, corrija e reenvie. *Trazer do Vision* busca pedidos pelo código ou
+   por período (homologação, pedido que ficou de fora).
 
 ## Scripts
 

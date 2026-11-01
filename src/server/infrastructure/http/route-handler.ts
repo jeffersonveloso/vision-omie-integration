@@ -9,6 +9,7 @@ import { env } from "@/server/shared/infrastructure/env";
 import { type DomainError, domainErrorName, ForbiddenError, UnauthorizedError, ValidationError } from "@/server/shared/domain/result";
 import type { UserRole } from "@/server/modules/identity/domain/user";
 import { clearSessionCookie, isHttpsRequest, readCookie, SESSION_COOKIE } from "./auth-cookie";
+import { lifecycle } from "./lifecycle";
 import { ERROR_CATEGORY_LABELS, isIntegrationError } from "@/server/modules/integration/domain/integration-error";
 
 export interface ApiErrorBody {
@@ -178,10 +179,16 @@ function errorResponse(error: unknown, meta: RequestMeta, logger: AppLogger): Re
  */
 export function handler<Ctx = unknown>(fn: (request: Request, container: AppContainer, ctx: Ctx, meta: RequestMeta) => Promise<Response>, options: { access?: RouteAccess } = {}) {
   const access = options.access ?? "user";
-  return async (request: Request, ctx: Ctx): Promise<Response> => {
+  return (request: Request, ctx: Ctx): Promise<Response> => lifecycle.track(async () => {
     const meta = requestMeta(request);
     let container: AppContainer | null = null;
     let response: Response;
+    if (lifecycle.isShuttingDown()) {
+      // Desligando: termina o que está em andamento e recusa o novo (o proxy/balanceador tenta outra instância).
+      response = json<ApiErrorBody>({ error: { code: "SHUTTING_DOWN", message: "A aplicação está reiniciando. Tente de novo em instantes." } }, { status: 503, headers: { "retry-after": "10" } });
+      response.headers.set("x-request-id", meta.requestId);
+      return response;
+    }
     try {
       container = await getContainer();
       await authorize(request, container, meta, access);
@@ -193,7 +200,7 @@ export function handler<Ctx = unknown>(fn: (request: Request, container: AppCont
     response.headers.set("x-request-id", meta.requestId);
     if (env().AUTH_MODE === "local" && access !== "public") response.headers.set("cache-control", "private, no-store");
     return response;
-  };
+  });
 }
 
 /** Cookie Secure: AUTH_COOKIE_SECURE, ou automático pelo protocolo da requisição. */

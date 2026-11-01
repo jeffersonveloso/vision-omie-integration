@@ -23,9 +23,10 @@ import { AuditService } from "@/server/modules/audit/application/audit-service";
 import { SYSTEM_CONTEXT } from "@/server/modules/audit/domain/audit-event";
 import type { AlertChannel } from "@/server/modules/alerts/application/alert-channel";
 import { AlertService } from "@/server/modules/alerts/application/alert-service";
+import { HealthWatchdog } from "@/server/modules/alerts/application/health-watchdog";
 import { SlackWebhookChannel } from "@/server/infrastructure/slack/slack-webhook-channel";
 import { DrizzleAuditRepository } from "@/server/modules/audit/infrastructure/drizzle-audit-repository";
-import { RunReconcileJob, RunSyncJob } from "@/server/modules/integration/application/use-cases/jobs";
+import { ImportVisionOrders, RunReconcileJob, RunSyncJob } from "@/server/modules/integration/application/use-cases/jobs";
 import { AcknowledgeVisionUpdate, RetryOrder, RetryOrders, SetOrderIgnored } from "@/server/modules/integration/application/use-cases/order-actions";
 import { PreviewOrderMapping } from "@/server/modules/integration/application/use-cases/preview-order-mapping";
 import { ProcessOrder } from "@/server/modules/integration/application/use-cases/process-order";
@@ -160,8 +161,10 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
   const jobDeps = { orders, runs, lock: jobLock, settings: settingsRepo, ids, clock, logger, instanceId, notifier: alerts };
   const syncJob = new RunSyncJob({ ...jobDeps, collect, process: processOrder });
   const reconcileJob = new RunReconcileJob({ ...jobDeps, reconcile: reconcileOrder });
+  const importOrders = new ImportVisionOrders({ ...jobDeps, collect, process: processOrder });
   const maintenance = new PurgeOldRecords({ logs, runs, webhooks: webhookEvents, audit, sessions: auth, settings: settingsRepo, lock: jobLock, clock, logger, instanceId });
-  const scheduler = new IntegrationScheduler({ settings: settingsRepo, sync: syncJob, reconcile: reconcileJob, maintenance, webhookSweep: sweepWebhooks, logger, timeZone });
+  const watchdog = new HealthWatchdog({ webhooks: webhookEvents, runs, settings: settingsRepo, checkpoints, notifier: alerts, clock, timeZone });
+  const scheduler = new IntegrationScheduler({ settings: settingsRepo, sync: syncJob, reconcile: reconcileJob, maintenance, webhookSweep: sweepWebhooks, watchdog, logger, timeZone });
   settings.attachScheduler(scheduler);
 
   await mappingAdmin.ensureSystemMaps();
@@ -193,7 +196,7 @@ export async function buildContainer(overrides: ContainerOverrides = {}) {
     webhookQueue,
     webhookEvents,
     startWebhookWorker,
-    useCases: { collect, processOrder, reconcileOrder, retryOrder, retryOrders, setIgnored, acknowledgeUpdate, preview, receiveWebhook, processWebhook, retryWebhooks, sweepWebhooks, syncJob, reconcileJob, maintenance },
+    useCases: { collect, processOrder, reconcileOrder, retryOrder, retryOrders, setIgnored, acknowledgeUpdate, preview, receiveWebhook, processWebhook, retryWebhooks, sweepWebhooks, syncJob, reconcileJob, importOrders, maintenance, watchdog },
     scheduler,
   };
 }

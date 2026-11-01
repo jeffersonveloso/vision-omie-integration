@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, RotateCcw } from "lucide-react";
+import { Loader2, Plus, RotateCcw } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,9 @@ import { api, ApiError } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { EffectiveRuleView } from "@/server/modules/mappings/application/mapping-admin-service";
 import type { DocumentType, LookupEntity, RuleSpec, SourceType, Transform } from "@/server/modules/mappings/domain/types";
-import { type CatalogResponse, describeSpec, type MapSummary, OmieLookupCombobox, VisionFieldCombobox } from "./shared";
+import { type CatalogResponse, describeSpec, type MapSummary, OmieLookupCombobox, useAccounts, VisionFieldCombobox } from "./shared";
+import { ValueMapEntriesEditor } from "./value-map-entries-editor";
+import { MapDialog } from "./value-maps-tab";
 
 const SOURCE_HELP: Record<SourceType, string> = {
   VISION_FIELD: "Copia um campo do pedido do Vision. Também aceita template, por exemplo {cliente.cidade} ({cliente.uf}).",
@@ -41,10 +43,14 @@ export function RuleEditorDialog({ open, onOpenChange, documentType, rule, accou
   const [spec, setSpec] = useState<RuleSpec>({ sourceType: "VISION_FIELD" });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [lastOpen, setLastOpen] = useState(false);
+  const accounts = useAccounts();
+  const [entriesAccount, setEntriesAccount] = useState("");
+  const [newMapOpen, setNewMapOpen] = useState(false);
 
   if (open !== lastOpen) {
     setLastOpen(open);
     if (open) {
+      setEntriesAccount(accountId ?? "");
       setTargetField(rule?.key ?? "");
       setSpec(rule?.spec ?? rule?.defaultSpec ?? (rule?.managedBy ? { sourceType: "CONSTANT", transforms: [] } : { sourceType: "VISION_FIELD", transforms: [] }));
       setErrors({});
@@ -102,11 +108,15 @@ export function RuleEditorDialog({ open, onOpenChange, documentType, rule, accou
     setSpec((s) => ({ ...s, ...patch }));
     setErrors({});
   };
+  // Regra de uma conta: as linhas mostradas são dessa conta. Regra para todas: escolhe a conta.
+  const linesAccountId = accountId ?? (entriesAccount || accounts.data?.accounts[0]?.id || "");
+  const linesAccountName = accounts.data?.accounts.find((a) => a.id === linesAccountId)?.name ?? accountName;
+  const selectedMap = spec.sourceType === "VALUE_MAP" ? (maps.find((m) => m.key === spec.valueMapKey) ?? null) : null;
   const toggleTransform = (t: Transform, on: boolean) => set({ transforms: on ? [...(spec.transforms ?? []), t] : (spec.transforms ?? []).filter((x) => x !== t) });
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent size="lg">
+      <DialogContent size={spec.sourceType === "VALUE_MAP" ? "xl" : "lg"}>
         <form
           className="contents"
           onSubmit={(e) => {
@@ -159,16 +169,48 @@ export function RuleEditorDialog({ open, onOpenChange, documentType, rule, accou
             ) : null}
 
             {spec.sourceType === "VALUE_MAP" ? (
-              <Field label="Tabela de-para" htmlFor="map" error={errors.valueMapKey} hint="As linhas da tabela são cadastradas por conta, na aba Tabelas de-para.">
-                <NativeSelect id="map" value={spec.valueMapKey ?? ""} onChange={(e) => set({ valueMapKey: e.target.value })}>
-                  <option value="">Selecione</option>
-                  {maps.map((m) => (
-                    <option key={m.key} value={m.key}>
-                      {m.name}
-                    </option>
-                  ))}
-                </NativeSelect>
-              </Field>
+              <div className="grid gap-3">
+                <Field label="Tabela de-para" htmlFor="map" error={errors.valueMapKey} hint="Escolha uma tabela ou crie uma nova; as linhas aparecem logo abaixo, por conta Omie.">
+                  <div className="flex flex-wrap gap-2">
+                    <NativeSelect id="map" value={spec.valueMapKey ?? ""} onChange={(e) => set({ valueMapKey: e.target.value })} className="min-w-0 flex-1">
+                      <option value="">Selecione</option>
+                      {maps.map((m) => (
+                        <option key={m.key} value={m.key}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </NativeSelect>
+                    <Button type="button" variant="outline" onClick={() => setNewMapOpen(true)}>
+                      <Plus /> Nova tabela
+                    </Button>
+                  </div>
+                </Field>
+                {selectedMap ? (
+                  <section aria-label={`Linhas da tabela ${selectedMap.name}`} className="rounded-control border border-border">
+                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-3 py-2">
+                      <p className="text-[14px] font-semibold">
+                        Linhas de {selectedMap.name}
+                        <span className="font-normal text-muted-foreground"> · salvas na hora, sem depender de &quot;Salvar regra&quot;</span>
+                      </p>
+                      {!accountId && (accounts.data?.accounts.length ?? 0) > 1 ? (
+                        <NativeSelect value={linesAccountId} onChange={(e) => setEntriesAccount(e.target.value)} className="h-8 w-auto min-w-[12rem]" aria-label="Conta Omie das linhas">
+                          {accounts.data!.accounts.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                        </NativeSelect>
+                      ) : null}
+                    </div>
+                    {linesAccountId ? (
+                      <ValueMapEntriesEditor compact map={selectedMap} accountId={linesAccountId} accountName={linesAccountName} />
+                    ) : (
+                      <p className="px-3 py-4 text-[13px] text-muted-foreground">Cadastre uma conta Omie para preencher as linhas: cada base tem seus próprios códigos.</p>
+                    )}
+                  </section>
+                ) : null}
+                <MapDialog map={null} open={newMapOpen} onOpenChange={setNewMapOpen} onSaved={(mapKey) => set({ valueMapKey: mapKey })} />
+              </div>
             ) : null}
 
             {spec.sourceType === "CONSTANT" ? (

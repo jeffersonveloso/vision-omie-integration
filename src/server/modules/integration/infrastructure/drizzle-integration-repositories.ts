@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, isNotNull, isNull, lte, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, gte, inArray, isNotNull, isNull, lte, lt, or, sql } from "drizzle-orm";
 import type { Database } from "@/server/infrastructure/database/client";
 import {
   customerLinks,
@@ -23,6 +23,7 @@ import type {
   IntegrationLogRepository,
   IntegrationOrderRepository,
   JobLock,
+  SyncJob,
   SyncRun,
   SyncRunRepository,
 } from "../domain/repositories";
@@ -291,6 +292,11 @@ export class DrizzleSyncRunRepository implements SyncRunRepository {
     const { id, ...rest } = run;
     await this.db.update(syncRuns).set({ ...rest, stats: run.stats }).where(eq(syncRuns.id, id));
   }
+
+  async latest(job: SyncJob): Promise<SyncRun | null> {
+    const [row] = await this.db.select().from(syncRuns).where(eq(syncRuns.job, job)).orderBy(desc(syncRuns.startedAt)).limit(1);
+    return row ? ({ ...row, stats: (row.stats ?? {}) as SyncRun["stats"] } as SyncRun) : null;
+  }
 }
 
 export class DrizzleCheckpointRepository implements CheckpointRepository {
@@ -401,7 +407,33 @@ export class DrizzleWebhookEventRepository implements WebhookEventRepository {
   }
 
   async markError(id: string, error: string, final: boolean): Promise<void> {
-    await this.db.update(webhookEvents).set({ status: final ? "FAILED" : "QUEUED", lastError: error.slice(0, 2000) }).where(eq(webhookEvents.id, id));
+    // Falha definitiva guarda o horário em processed_at: é o "falhou em" do alerta e da tela.
+    await this.db
+      .update(webhookEvents)
+      .set({ status: final ? "FAILED" : "QUEUED", lastError: error.slice(0, 2000), ...(final ? { processedAt: new Date() } : {}) })
+      .where(eq(webhookEvents.id, id));
+  }
+
+  async failedSince(since: Date, limit: number): Promise<{ total: number; items: Array<{ id: string; topic: string | null; lastError: string | null; failedAt: Date }> }> {
+    const where = and(eq(webhookEvents.status, "FAILED"), gt(webhookEvents.processedAt, since));
+    const [rows, [{ total }]] = await Promise.all([
+      this.db
+        .select({ id: webhookEvents.id, topic: webhookEvents.topic, lastError: webhookEvents.lastError, failedAt: webhookEvents.processedAt })
+        .from(webhookEvents)
+        .where(where)
+        .orderBy(desc(webhookEvents.processedAt))
+        .limit(limit),
+      this.db.select({ total: sql<number>`count(*)::int` }).from(webhookEvents).where(where),
+    ]);
+    return { total: Number(total), items: rows.map((r) => ({ ...r, failedAt: r.failedAt ?? since })) };
+  }
+
+  async countUnfinishedBefore(before: Date): Promise<number> {
+    const [{ total }] = await this.db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(webhookEvents)
+      .where(and(inArray(webhookEvents.status, ["RECEIVED", "QUEUED", "PROCESSING"]), lt(webhookEvents.receivedAt, before)));
+    return Number(total);
   }
 
   async listStale(before: Date, limit: number): Promise<string[]> {

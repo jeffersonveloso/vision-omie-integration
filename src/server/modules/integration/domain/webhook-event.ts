@@ -57,6 +57,10 @@ export interface WebhookEventRepository {
   /** Eventos que ficaram sem chegar ao worker (Redis fora do ar, job perdido). */
   listStale(before: Date, limit: number): Promise<string[]>;
   listIdsByStatus(status: WebhookEventStatus, limit: number): Promise<string[]>;
+  /** Eventos que esgotaram as tentativas depois de `since` (alerta de webhooks com falha). */
+  failedSince(since: Date, limit: number): Promise<{ total: number; items: Array<{ id: string; topic: string | null; lastError: string | null; failedAt: Date }> }>;
+  /** Quantos eventos ainda não terminaram (recebidos, na fila ou processando) e chegaram antes de `before`. */
+  countUnfinishedBefore(before: Date): Promise<number>;
   list(filter: WebhookEventListFilter): Promise<{ items: WebhookEventView[]; total: number; counts: Partial<Record<WebhookEventStatus, number>> }>;
   purgeBefore(date: Date): Promise<number>;
 }
