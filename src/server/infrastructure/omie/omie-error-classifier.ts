@@ -24,11 +24,13 @@ export function readFault(httpStatus: number, body: unknown): OmieFault | null {
   return null;
 }
 
-export type OmieFaultKind = "DUPLICATE" | "NOT_FOUND" | "EMPTY_LIST" | "VALIDATION" | "RATE_LIMIT" | "REDUNDANT" | "BLOCKED" | "AUTH" | "UNAVAILABLE" | "BUSINESS";
+export type OmieFaultKind = "API_PLAN" | "DUPLICATE" | "NOT_FOUND" | "EMPTY_LIST" | "VALIDATION" | "RATE_LIMIT" | "REDUNDANT" | "BLOCKED" | "AUTH" | "UNAVAILABLE" | "BUSINESS";
 
 export function classifyFault(fault: OmieFault): OmieFaultKind {
   const text = `${fault.faultString ?? ""} ${fault.faultCode ?? ""}`.toLowerCase();
   if (/não existem registros|nao existem registros|no records/.test(text)) return "EMPTY_LIST";
+  // Base sem o "Plano de APIs e Webhooks" (addon "APIs Omie" da Omie.Store): as credenciais estão certas.
+  if (/omie\.?\s?store|store\.omie|addon|add-on|plano de apis/.test(text)) return "API_PLAN";
   if (/já cadastrad[oa] para o código de integração|ja cadastrad[oa] para o codigo de integracao|already exists/.test(text)) return "DUPLICATE";
   if (fault.httpStatus === 425 || /bloquead|consumo indevido|misuse/.test(text)) return "BLOCKED";
   if (/redundan|já foi realizada|ja foi realizada|aguarde \d+ segundos/.test(text)) return "REDUNDANT";
@@ -46,6 +48,15 @@ export function toIntegrationError(fault: OmieFault, kind: OmieFaultKind, contex
   const message = fault.faultString?.replace(/^ERROR:\s*/i, "").trim() || `HTTP ${fault.httpStatus}`;
   const details = { httpStatus: fault.httpStatus, faultcode: fault.faultCode, faultstring: fault.faultString, metodo: where };
   switch (kind) {
+    case "API_PLAN":
+      return new IntegrationError({
+        category: "OMIE_AUTH",
+        code: "API_PLAN_REQUIRED",
+        message: `A base Omie não tem a API liberada (${where}): falta contratar o "Plano de APIs e Webhooks" (addon "APIs Omie") na Omie.Store para este aplicativo.`,
+        hint: "As credenciais não são o problema. Um administrador da conta Omie contrata em store.omie.com.br/apps/apis-omie (Comprar Agora) e confere em Meus Aplicativos › engrenagem › Resumo do App se aparece \"APIs Omie - Plano Padrão\". A contratação é por aplicativo: faça em cada base. Depois, use \"Testar conexão\" de novo.",
+        retryable: false,
+        details,
+      });
     case "AUTH":
       return new IntegrationError({ category: "OMIE_AUTH", code: "AUTH", message: `O Omie recusou as credenciais (${where}): ${message}`, hint: "Confira App Key e App Secret da conta em Contas Omie, use \"Testar conexão\" e verifique se o aplicativo/assinatura da API está ativo no Omie.", retryable: false, details });
     case "BLOCKED":

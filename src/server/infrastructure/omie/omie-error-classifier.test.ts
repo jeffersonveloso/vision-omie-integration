@@ -20,6 +20,17 @@ describe("classificação das falhas do Omie", () => {
     expect(classifyFault(fault(text))).toBe(kind);
   });
 
+  it("base sem o Plano de APIs da Omie.Store não é erro de credencial", () => {
+    const fault = { httpStatus: 500, faultCode: "SOAP-ENV:Client-6", faultString: "ERROR: Para consumir a API Omie é necessário ativar um addon na Omie Store. Saiba mais em: https://store.omie.com.br/apps/apis-omie" };
+    expect(classifyFault(fault)).toBe("API_PLAN");
+    expect(classifyFault({ ...fault, httpStatus: 403 })).toBe("API_PLAN");
+    const error = toIntegrationError(fault, "API_PLAN", { service: "geral/empresas", method: "ListarEmpresas" });
+    expect(error).toMatchObject({ category: "OMIE_AUTH", code: "API_PLAN_REQUIRED", retryable: false });
+    expect(error.message).toContain("Plano de APIs e Webhooks");
+    expect(error.hint).toContain("store.omie.com.br/apps/apis-omie");
+    expect(error.hint).toContain("As credenciais não são o problema");
+  });
+
   it("usa o status HTTP quando o texto não diz nada", () => {
     expect(classifyFault(fault(null, 425))).toBe("BLOCKED");
     expect(classifyFault(fault(null, 429))).toBe("RATE_LIMIT");
