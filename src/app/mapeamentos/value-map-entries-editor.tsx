@@ -115,11 +115,7 @@ export function ValueMapEntriesEditor({ map, accountId, accountName, compact = f
         <Field label="Valor no Vision" htmlFor={`${ids}-vision`}>
           <Input id={`${ids}-vision`} value={draft.visionValue} onChange={(e) => setDraft((d) => ({ ...d, visionValue: e.target.value }))} onKeyDown={submitOnEnter} placeholder={map.key === "produtos" ? "123" : ""} className="font-mono" />
         </Field>
-        <Field
-          label={map.omieEntity === "livre" ? "Valor no Omie" : `${entityLabel} no Omie (${accountName})`}
-          htmlFor={`${ids}-omie`}
-          hint={map.omieEntity === "livre" ? undefined : "Escolha da lista ou digite o código e use \"Usar …\"."}
-        >
+        <Field label={map.omieEntity === "livre" ? "Valor no Omie" : `${entityLabel} no Omie (${accountName})`} htmlFor={`${ids}-omie`}>
           {map.omieEntity === "livre" ? (
             <Input id={`${ids}-omie`} value={draft.omieValue ?? ""} onChange={(e) => setDraft((d) => ({ ...d, omieValue: e.target.value, omieLabel: null }))} onKeyDown={submitOnEnter} className="font-mono" />
           ) : (
@@ -133,6 +129,8 @@ export function ValueMapEntriesEditor({ map, accountId, accountName, compact = f
             {draft.id ? "Salvar linha" : "Adicionar"}
           </Button>
         </div>
+        {/* Dica fora do campo: dentro dele empurrava a caixa do Omie para cima e desalinhava as duas. */}
+        {map.omieEntity === "livre" ? null : <p className="text-[12px] text-muted-foreground md:col-span-3">No Omie, escolha da lista ou digite o código e clique em &quot;Usar …&quot;.</p>}
       </div>
 
       <div className={cn("flex flex-wrap items-center gap-2 pt-3", compact ? "px-3" : "px-5")}>
