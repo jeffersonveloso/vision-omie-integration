@@ -165,13 +165,15 @@ Objetivo: nenhum campo Vision → Omie fixo no código. Tudo é configurável na
 * **Regras de campo** — para cada campo do payload Omie (cliente, pedido de venda, OS) define a origem:
   * *Campo do Vision* — caminho (`cliente.cpfcnpj`) ou template (`{cliente.cidade} ({cliente.uf})`).
     Nos itens, caminhos são relativos ao item; `$pedido.` lê o cabeçalho.
-  * *Valor fixo* — aceita `{{hoje}}` e `{{codigoPedido}}`. Quando o campo é um cadastro do Omie
-    (categoria, conta corrente, departamento, projeto, vendedor, etapa, parcela, cenário), o valor é
-    escolhido numa lista carregada **da base Omie da conta**.
+  * *Valor fixo* — duas formas: **Escolher do Omie** (lista carregada da base, sem precisar saber o
+    código interno; começa no cadastro do campo — categoria, conta corrente, departamento, projeto,
+    vendedor, etapa, parcela, cenário — e dá para trocar o cadastro) ou **Digitar** (código conhecido,
+    `{{hoje}}`, `{{codigoPedido}}`). Numa regra para todas as contas, escolhe-se a base consultada e a
+    tela avisa que o código é daquela base.
   * *Tabela de-para* — traduz o código do Vision pelo de-para da conta (ex.: produto 123 → 4422421).
   * *Não enviar*.
   * Transformações encadeáveis (maiúsculas, só dígitos, data dd/mm/aaaa, número, S/N, DDD...) e valor
-    padrão quando vazio.
+    padrão quando vazio ("Valor se vier vazio"), com as mesmas duas formas do valor fixo.
 * **Precedência:** regra da conta > regra de todas as contas > padrão do catálogo.
 * **Campos personalizados:** qualquer caminho do payload Omie (ex.: `det[].inf_adic.peso_bruto`).
 * **Tabelas de-para:** definidas uma vez (chave estável), preenchidas **por conta** (os códigos do Omie

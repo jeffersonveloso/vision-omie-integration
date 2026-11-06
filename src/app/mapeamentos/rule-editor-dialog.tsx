@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { EffectiveRuleView } from "@/server/modules/mappings/application/mapping-admin-service";
 import type { DocumentType, LookupEntity, RuleSpec, SourceType, Transform } from "@/server/modules/mappings/domain/types";
 import { type CatalogResponse, describeSpec, type MapSummary, OmieLookupCombobox, useAccounts, VisionFieldCombobox } from "./shared";
+import { OmieValueInput } from "./omie-value-input";
 import { ValueMapEntriesEditor } from "./value-map-entries-editor";
 import { MapDialog } from "./value-maps-tab";
 
@@ -214,17 +215,8 @@ export function RuleEditorDialog({ open, onOpenChange, documentType, rule, accou
             ) : null}
 
             {spec.sourceType === "CONSTANT" ? (
-              <Field
-                label="Valor fixo"
-                htmlFor="constant"
-                error={errors.constantValue}
-                hint={lookup && !accountId ? "Os códigos do Omie mudam de uma base para outra. Escolha uma conta no topo da tela para selecionar da lista do Omie." : undefined}
-              >
-                {lookup && accountId ? (
-                  <OmieLookupCombobox id="constant" accountId={accountId} entity={lookup} value={spec.constantValue ?? null} onChange={(v) => set({ constantValue: v })} />
-                ) : (
-                  <Input id="constant" value={spec.constantValue ?? ""} onChange={(e) => set({ constantValue: e.target.value })} />
-                )}
+              <Field label="Valor fixo" htmlFor="constant" error={errors.constantValue} hint="Escolha de um cadastro do Omie ou digite o código. Ao digitar, aceita {{hoje}} e {{codigoPedido}}.">
+                <OmieValueInput id="constant" value={spec.constantValue ?? null} onChange={(v) => set({ constantValue: v })} fieldEntity={lookup} entityLabels={catalog.lookupEntities} accountId={accountId} />
               </Field>
             ) : null}
 
@@ -244,8 +236,8 @@ export function RuleEditorDialog({ open, onOpenChange, documentType, rule, accou
                   </div>
                 </fieldset>
                 {spec.sourceType !== "CONSTANT" ? (
-                  <Field label="Valor se vier vazio" htmlFor="default" hint="Opcional. Aceita template e tokens, como {cliente.razaoSocial} ou {{hoje}}.">
-                    <Input id="default" value={spec.defaultValue ?? ""} onChange={(e) => set({ defaultValue: e.target.value })} />
+                  <Field label="Valor se vier vazio" htmlFor="default" hint="Opcional. Escolha de um cadastro do Omie ou digite; ao digitar, aceita template e tokens, como {cliente.razaoSocial} ou {{hoje}}.">
+                    <OmieValueInput id="default" value={spec.defaultValue ?? null} onChange={(v) => set({ defaultValue: v })} fieldEntity={lookup} entityLabels={catalog.lookupEntities} accountId={accountId} preferText={!lookup} />
                   </Field>
                 ) : null}
               </>

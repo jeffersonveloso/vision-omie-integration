@@ -44,3 +44,35 @@ test("trazer do Vision pelo código mostra o resultado e o que não existe", asy
   await expect(dialog.getByText("999999")).toBeVisible();
   await expect(dialog.getByRole("link", { name: "Pedido 14100" })).toBeVisible();
 });
+
+test("valor fixo e valor se vier vazio: escolher do cadastro do Omie ou digitar o código", async ({ page }) => {
+  await page.goto("/mapeamentos");
+  // Regra de uma conta: a lista vem da base dela.
+  const scope = page.locator("#scope");
+  await scope.selectOption({ index: 1 });
+  const row = page.getByRole("listitem").filter({ hasText: "informacoes_adicionais.codigo_categoria" });
+  await row.getByRole("button", { name: /Editar|Configurar/ }).click();
+  const dialog = page.getByRole("dialog", { name: "Categoria" });
+
+  await dialog.getByRole("radio", { name: "Valor fixo" }).click();
+  const fixed = dialog.getByRole("radiogroup", { name: "Como informar o valor" }).first();
+  await expect(fixed.getByRole("radio", { name: "Escolher do Omie" })).toHaveAttribute("aria-checked", "true");
+  await expect(dialog.getByLabel("Cadastro do Omie").first()).toHaveValue("categorias");
+  await dialog.locator("#constant").click();
+  await page.getByRole("option", { name: /Prestação de serviços/ }).click();
+  await expect(dialog.locator("#constant")).toContainText("Prestação de serviços");
+
+  // Digitar: o código vai como está, sem consultar o Omie.
+  await fixed.getByRole("radio", { name: "Digitar" }).click();
+  await dialog.locator("#constant").fill("1.01.03");
+  await expect(dialog.locator("#constant")).toHaveValue("1.01.03");
+
+  // "Valor se vier vazio" também tem as duas formas.
+  await dialog.getByRole("radio", { name: "Campo do Vision" }).click();
+  const fallback = dialog.getByRole("radiogroup", { name: "Como informar o valor" }).last();
+  await fallback.getByRole("radio", { name: "Escolher do Omie" }).click();
+  await dialog.locator("#default").click();
+  await page.getByRole("option", { name: /Venda de produtos/ }).click();
+  await expect(dialog.locator("#default")).toContainText("Venda de produtos");
+  await dialog.getByRole("button", { name: "Cancelar" }).click();
+});
