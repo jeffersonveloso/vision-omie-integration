@@ -109,3 +109,16 @@ describe("Omie: títulos e baixas (ListarMovimentos)", () => {
     expect(JSON.stringify(records)).not.toContain("SECRET");
   });
 });
+
+describe("Omie: cliente (UpsertClienteCpfCnpj)", () => {
+  it("não envia codigo_cliente_integracao, que o método recusa (fault 1102)", async () => {
+    let sent: Record<string, unknown> = {};
+    const { gw } = gateway((call, param) => {
+      sent = param;
+      if ("codigo_cliente_integracao" in param) return { status: 500, body: { faultstring: "ERROR: A tag [codigo_cliente_integracao] não deve ser informada!", faultcode: "SOAP-ENV:Client-1102" } };
+      return { body: { codigo_cliente_omie: 7788, codigo_status: "0", descricao_status: "Cliente alterado com sucesso!" } };
+    });
+    expect(await gw.upsertCustomer({ cnpj_cpf: "11.222.333/0001-81", razao_social: "Clínica X", codigo_cliente_integracao: "VIS-CLI-1" })).toEqual({ customerId: 7788 });
+    expect(sent).toEqual({ cnpj_cpf: "11.222.333/0001-81", razao_social: "Clínica X" });
+  });
+});

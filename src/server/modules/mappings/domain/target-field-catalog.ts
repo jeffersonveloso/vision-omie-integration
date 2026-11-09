@@ -30,7 +30,6 @@ const customer: TargetFieldDefinition[] = [
   { key: "cidade", documentType: "CUSTOMER", scope: "header", group: "Endereço", label: "Cidade", description: "Nome da cidade (ou código IBGE em cidade_ibge).", valueType: "string", required: false, maxLength: 40, defaultRule: { sourceType: "VISION_FIELD", sourcePath: "cliente.cidade", transforms: ["TRIM"] } },
   { key: "estado", documentType: "CUSTOMER", scope: "header", group: "Endereço", label: "UF", description: "Sigla do estado.", valueType: "string", required: false, maxLength: 2, defaultRule: { sourceType: "VISION_FIELD", sourcePath: "cliente.uf", transforms: ["TRIM", "UPPERCASE"] } },
   { key: "cep", documentType: "CUSTOMER", scope: "header", group: "Endereço", label: "CEP", description: "CEP somente dígitos.", valueType: "string", required: false, maxLength: 10, defaultRule: { sourceType: "VISION_FIELD", sourcePath: "cliente.cep", transforms: ["DIGITS_ONLY"] } },
-  { key: "codigo_cliente_integracao", documentType: "CUSTOMER", scope: "header", group: "Controle", label: "Código de integração", description: "Gerado pela integração a partir do código do cliente no Vision.", valueType: "string", required: true, defaultRule: null, system: true },
 ];
 
 const salesOrder: TargetFieldDefinition[] = [

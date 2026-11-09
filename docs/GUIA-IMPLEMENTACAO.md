@@ -66,7 +66,7 @@ sequenceDiagram
 |---|---|
 | Consulta incremental por `dataAtualizacao` | Checkpoint `vision.orders.updated` guarda a maior `dataAtualizacao` vista; a próxima janela começa nela menos a sobreposição (padrão 1 dia). Primeira execução: últimos 7 dias. |
 | Paginação em lotes | Laço por `pagina` (50 por página, configurável) até o `TotalPaginas` informado pelo Vision (limite de segurança: 500 páginas). |
-| Idempotência (empresa + pedido) | Um agregado por `codigoPedido` (índice único). No Omie, códigos de integração determinísticos (`VIS-14100`, `VIS-14100-OS`, `VIS-CLI-501`): antes de incluir, consulta pelo código; se a inclusão retornar "já cadastrado", vincula o existente. Testado com resposta perdida no meio da inclusão. |
+| Idempotência (empresa + pedido) | Um agregado por `codigoPedido` (índice único). No Omie, códigos de integração determinísticos (`VIS-14100`, `VIS-14100-OS`); cliente pelo CPF/CNPJ (`UpsertClienteCpfCnpj`), com o vínculo guardado no banco: antes de incluir, consulta pelo código; se a inclusão retornar "já cadastrado", vincula o existente. Testado com resposta perdida no meio da inclusão. |
 | Dual CNPJ | `AccountRouter`. O pedido real do Vision traz só `CodigoEmpresa`, então a empresa é associada à conta Omie pela tabela "Empresa Vision → CNPJ". Se o Vision passar a mandar o CNPJ, ele tem prioridade. |
 | Logs completos | Cada chamada externa vira um registro com request, response, HTTP e duração (segredos removidos, textos grandes truncados). |
 | Reprocessamento | Novas tentativas automáticas com espera crescente para falhas temporárias; reenvio manual (individual, selecionados ou por causa). |

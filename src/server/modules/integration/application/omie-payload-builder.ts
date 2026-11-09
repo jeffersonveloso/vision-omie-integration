@@ -41,10 +41,15 @@ function percentages(parcels: VisionParcel[]): number[] {
 
 /** Monta os payloads finais do Omie a partir do resultado do mapeamento + campos de sistema. */
 export class OmiePayloadBuilder {
-  customer(mapping: MappingResult, integrationCode: string): Record<string, unknown> {
+  /**
+   * geral/clientes › UpsertClienteCpfCnpj. O cliente é achado pelo CPF/CNPJ: o método recusa
+   * `codigo_cliente_integracao` ("A tag [codigo_cliente_integracao] não deve ser informada!"). O vínculo
+   * com o Vision fica no banco da integração (código do cliente no Omie, por conta).
+   */
+  customer(mapping: MappingResult): Record<string, unknown> {
     const payload: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(mapping.header)) setPath(payload, key, value);
-    payload.codigo_cliente_integracao = integrationCode;
+    delete payload.codigo_cliente_integracao;
     return payload;
   }
 

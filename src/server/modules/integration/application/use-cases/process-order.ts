@@ -4,7 +4,7 @@ import type { MappingContextFactory } from "@/server/modules/mappings/applicatio
 import { MappingEngine, type MappingResult } from "@/server/modules/mappings/domain/mapping-engine";
 import type { DocumentType, MappingIssue } from "@/server/modules/mappings/domain/types";
 import type { SettingsRepository } from "@/server/modules/settings/domain/integration-settings";
-import { customerIntegrationCode, documentIntegrationCode } from "../../domain/integration-codes";
+import { documentIntegrationCode } from "../../domain/integration-codes";
 import { IntegrationError, type IntegrationStep } from "../../domain/integration-error";
 import type { IntegrationOrder } from "../../domain/integration-order";
 import { DOCUMENT_KIND_LABELS, type DocumentKind } from "../../domain/omie-document";
@@ -163,11 +163,10 @@ export class ProcessOrder {
     // 5. Cliente
     log.step("CUSTOMER_SYNC");
     const gateway = omie.forAccount(route.account.credentials(), log.recorder());
-    const customerCode = customerIntegrationCode(prefix, snapshot.customerCode, snapshot.customerDocument);
     const customerId = await customers.ensure({
       accountId: route.account.id,
       visionCustomerKey: String(snapshot.customerCode ?? snapshot.customerDocument ?? "sem-cliente"),
-      payload: this.builder.customer(customerMapping, customerCode),
+      payload: this.builder.customer(customerMapping),
       gateway,
       upsertEveryTime: settings.documents.upsertCustomer,
       log,

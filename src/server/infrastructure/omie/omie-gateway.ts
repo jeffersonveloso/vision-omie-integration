@@ -153,7 +153,11 @@ export class OmieGatewayAdapter implements OmieGateway {
   constructor(private readonly client: OmieApiClient) {}
 
   async upsertCustomer(payload: Record<string, unknown>): Promise<{ customerId: number }> {
-    const res = await this.client.call<Obj>("geral/clientes", "UpsertClienteCpfCnpj", payload).catch(unwrap);
+    // UpsertClienteCpfCnpj acha o cliente pelo documento e recusa codigo_cliente_integracao (fault 1102),
+    // mesmo que uma regra personalizada o tenha incluído.
+    const { codigo_cliente_integracao: _ignored, ...body } = payload;
+    void _ignored;
+    const res = await this.client.call<Obj>("geral/clientes", "UpsertClienteCpfCnpj", body).catch(unwrap);
     const error = statusError("geral/clientes", "UpsertClienteCpfCnpj", res, "codigo_status", "descricao_status");
     if (error) throw error;
     const id = num(res.codigo_cliente_omie);

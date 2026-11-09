@@ -17,7 +17,7 @@ Implementação: `src/server/infrastructure/omie/{omie-api-client,omie-rate-limi
 
 | Serviço | Método | Uso |
 |---|---|---|
-| `geral/clientes` | `UpsertClienteCpfCnpj` | Cria/atualiza o cliente pelo CPF/CNPJ. `codigo_cliente_integracao = VIS-CLI-{codigoCliente}`. O código Omie fica guardado por conta, e o upsert só se repete quando os dados mudam. |
+| `geral/clientes` | `UpsertClienteCpfCnpj` | Cria/atualiza o cliente pelo CPF/CNPJ (reaproveita cliente já cadastrado no Omie). Não aceita `codigo_cliente_integracao` (fault 1102): o vínculo Vision ↔ Omie fica no banco da integração, com o código Omie guardado por conta, e o upsert só se repete quando os dados mudam. |
 | `produtos/pedido` | `StatusPedido` (`codigo_pedido_integracao`) | Antes de incluir: o pedido já existe? |
 | `produtos/pedido` | `IncluirPedido` | Pedido de venda. `cabecalho.codigo_pedido_integracao = VIS-{codigo}`, itens `det[].ide.codigo_item_integracao = {codigo}-{seq}`, `informacoes_adicionais.codigo_categoria` e `codigo_conta_corrente` obrigatórios, `lista_parcelas` quando a condição é "999 — a vista/parcelas informadas". |
 | `servicos/os` | `StatusOS` (`cCodIntOS`) | Antes de incluir: a OS já existe? |

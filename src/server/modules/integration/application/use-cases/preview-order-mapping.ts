@@ -4,7 +4,7 @@ import { MappingEngine } from "@/server/modules/mappings/domain/mapping-engine";
 import type { DocumentType, FieldTrace, MappingIssue } from "@/server/modules/mappings/domain/types";
 import type { OmieAccountRepository } from "@/server/modules/omie-accounts/domain/omie-account-repository";
 import type { SettingsRepository } from "@/server/modules/settings/domain/integration-settings";
-import { customerIntegrationCode, documentIntegrationCode } from "../../domain/integration-codes";
+import { documentIntegrationCode } from "../../domain/integration-codes";
 import { IntegrationError } from "../../domain/integration-error";
 import type { IntegrationOrderRepository } from "../../domain/repositories";
 import { snapshotVisionOrder, type VisionOrderPayload } from "../../domain/vision-order";
@@ -83,7 +83,7 @@ export class PreviewOrderMapping {
     ];
 
     const customer = this.engine.map("CUSTOMER", mapped, contextFor("CUSTOMER"));
-    documents.push({ type: "CUSTOMER", payload: this.builder.customer(customer, customerIntegrationCode(prefix, snapshot.customerCode, snapshot.customerDocument)), issues: customer.issues, trace: customer.trace });
+    documents.push({ type: "CUSTOMER", payload: this.builder.customer(customer), issues: customer.issues, trace: customer.trace });
 
     const buildBase = { customerId: 0, visionOrderCode: order.visionOrderCode, visionOrder: mapped, parcels: snapshot.parcels, sendInstallments: settings.documents.sendVisionInstallments, timeZone: this.deps.timeZone };
     if (snapshot.hasProducts && settings.documents.sendSalesOrders) {

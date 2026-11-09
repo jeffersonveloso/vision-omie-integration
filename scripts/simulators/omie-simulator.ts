@@ -106,10 +106,12 @@ export async function startOmieSimulator(port = 0): Promise<OmieSimulator> {
         const doc = String(p.cnpj_cpf ?? "").replace(/\D/g, "");
         if (!doc) return [500, fault("O preenchimento da tag [cnpj_cpf] é obrigatório!")];
         if (!p.razao_social) return [500, fault("O preenchimento da tag [razao_social] é obrigatório!")];
+        // Como no Omie real (SOAP-ENV:Client-1102): este método acha o cliente pelo documento.
+        if (p.codigo_cliente_integracao !== undefined) return [500, fault("A tag [codigo_cliente_integracao] não deve ser informada!", "SOAP-ENV:Client-1102")];
         const existing = app.customers.get(doc);
         const id = existing?.id ?? ++seq;
         app.customers.set(doc, { id, payload: p });
-        return [200, { codigo_cliente_omie: id, codigo_cliente_integracao: p.codigo_cliente_integracao, codigo_status: "0", descricao_status: existing ? "Cliente alterado com sucesso!" : "Cliente cadastrado com sucesso!" }];
+        return [200, { codigo_cliente_omie: id, codigo_status: "0", descricao_status: existing ? "Cliente alterado com sucesso!" : "Cliente cadastrado com sucesso!" }];
       }
       case "IncluirPedido":
       case "IncluirOS": {
